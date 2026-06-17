@@ -4,10 +4,12 @@ import { nanoid } from "nanoid";
 import type { DrizzleDb } from "../db/client";
 import { collections, entries, media, type MediaRow } from "../db/schema";
 import { badRequest, conflict, notFound, unsupportedMediaType, validationError } from "../lib/errors";
+import { getStorageProvider, type PutResult } from "./storage";
 
 import {
   D1_IN_CHUNK,
   IMAGE_MIME_ALLOWLIST,
+  MAX_CLOUDINARY_VIDEO_BYTES,
   MAX_IMAGE_BYTES,
   MAX_VIDEO_BYTES,
   PART_SIZE,
@@ -25,10 +27,13 @@ import type {
   UploadedPart,
 } from "@/shared/api-types";
 
-// Single owner of the R2 media pipeline: streamed image uploads, multipart video uploads,
+// Single owner of the media pipeline: streamed image uploads, multipart/chunked video uploads,
 // listing, usage scans, deletion, and the existence/kind checks that entry writes rely on.
-// The R2 object key is `media/<id>/<filename>`; it never changes for a given media id, which
-// is what lets the public serving route cache immutably and skip a D1 read.
+// Storage is delegated to a StorageProvider (./storage) — Cloudflare R2 by default, or
+// Cloudinary when CLOUDINARY_URL is set — so this file never touches a backend directly. The
+// `provider` and `url` columns on each row record where the object lives: R2 rows are served
+// from our own origin at `media/<id>/<filename>` (immutable cache, no D1 read); Cloudinary rows
+// carry an absolute secure_url served from Cloudinary's CDN.
 
 const IMAGE_MIMES: readonly string[] = IMAGE_MIME_ALLOWLIST;
 const VIDEO_MIMES: readonly string[] = VIDEO_MIME_ALLOWLIST;
@@ -50,13 +55,12 @@ export function sanitizeFilename(raw: string): string {
   return name;
 }
 
-function mediaKey(id: string, filename: string): string {
-  return `media/${id}/${filename}`;
-}
-
-/** Same-origin serving path for the admin UI (the SPA shares the worker's origin). */
-function relativeUrl(row: MediaRow): string {
-  return `/${row.r2Key}`;
+/**
+ * Display URL for the admin UI: Cloudinary's absolute secure_url when the object lives there,
+ * otherwise the same-origin R2 serving path (the SPA shares the worker's origin).
+ */
+function mediaUrl(row: MediaRow): string {
+  return row.url ?? `/${row.r2Key}`;
 }
 
 export function toMediaDTO(row: MediaRow): MediaDTO {
@@ -64,7 +68,7 @@ export function toMediaDTO(row: MediaRow): MediaDTO {
     id: row.id,
     kind: row.kind,
     filename: row.filename,
-    url: relativeUrl(row),
+    url: mediaUrl(row),
     mime: row.mime,
     size: row.size,
     width: row.width,
@@ -75,12 +79,12 @@ export function toMediaDTO(row: MediaRow): MediaDTO {
   };
 }
 
-/** Absolute URL for delivery (works on any domain — derived from the request origin). */
+/** Absolute URL for delivery: Cloudinary's CDN URL, or our origin + the R2 key for R2 rows. */
 export function toDeliveryMedia(origin: string, row: MediaRow): DeliveryMedia {
   return {
     id: row.id,
     kind: row.kind,
-    url: `${origin}/${row.r2Key}`,
+    url: row.url ?? `${origin}/${row.r2Key}`,
     mime: row.mime,
     width: row.width,
     height: row.height,
@@ -169,16 +173,17 @@ export async function uploadImage(
 
   const filename = sanitizeFilename(input.filename);
   const id = nanoid();
-  const key = mediaKey(id, filename);
+  const provider = getStorageProvider(env);
 
-  const object = await env.MEDIA.put(key, body, {
-    httpMetadata: { contentType: input.mime },
+  const result = await provider.put({
+    input: { id, filename, mime: input.mime, kind: "image" },
+    body,
+    declaredTotal: input.declaredLength,
   });
-  if (!object) throw badRequest("Upload failed");
 
   // Defensive: enforce the cap even when no Content-Length was provided up front.
-  if (object.size > MAX_IMAGE_BYTES) {
-    await env.MEDIA.delete(key);
+  if (result.bytes > MAX_IMAGE_BYTES) {
+    await provider.delete({ storageKey: result.storageKey, kind: "image" });
     throw badRequest("Image exceeds the 25 MB limit");
   }
 
@@ -189,11 +194,13 @@ export async function uploadImage(
       id,
       kind: "image",
       filename,
-      r2Key: key,
+      r2Key: result.storageKey,
+      provider: provider.name,
+      url: result.url ?? null,
       mime: input.mime,
-      size: object.size,
-      width: input.width ?? null,
-      height: input.height ?? null,
+      size: result.bytes,
+      width: input.width ?? result.width ?? null,
+      height: input.height ?? result.height ?? null,
       duration: null,
       alt: input.alt?.trim() || null,
       status: "ready",
@@ -261,12 +268,17 @@ export async function uploadMediaFromUrl(
   const fromPath = decodeURIComponent(parsed.pathname.split("/").pop() ?? "");
   const filename = sanitizeFilename(input.filename || fromPath || `download-${kind}`);
   const id = nanoid();
-  const key = mediaKey(id, filename);
+  const provider = getStorageProvider(env);
 
-  const object = await env.MEDIA.put(key, res.body, { httpMetadata: { contentType: mime } });
-  if (!object) throw badRequest("Upload failed");
-  if (object.size > cap) {
-    await env.MEDIA.delete(key);
+  const result = await provider.put({
+    input: { id, filename, mime, kind },
+    body: res.body,
+    declaredTotal: Number.isFinite(declared) ? declared : null,
+    // Let Cloudinary fetch the source directly so a large remote video never buffers here.
+    sourceUrl: parsed.toString(),
+  });
+  if (result.bytes > cap) {
+    await provider.delete({ storageKey: result.storageKey, kind });
     throw badRequest(`Asset exceeds the ${capLabel} limit`);
   }
 
@@ -277,12 +289,14 @@ export async function uploadMediaFromUrl(
       id,
       kind,
       filename,
-      r2Key: key,
+      r2Key: result.storageKey,
+      provider: provider.name,
+      url: result.url ?? null,
       mime,
-      size: object.size,
-      width: null,
-      height: null,
-      duration: null,
+      size: result.bytes,
+      width: result.width ?? null,
+      height: result.height ?? null,
+      duration: result.duration ?? null,
       alt: input.alt?.trim() || null,
       status: "ready",
       uploadId: null,
@@ -318,12 +332,20 @@ export async function initVideoUpload(
     throw badRequest("Video exceeds the 2 GB limit");
   }
 
+  const provider = getStorageProvider(env);
+  if (provider.name === "cloudinary" && input.size > MAX_CLOUDINARY_VIDEO_BYTES) {
+    const limitMb = Math.floor(MAX_CLOUDINARY_VIDEO_BYTES / (1024 * 1024));
+    throw badRequest(`Video exceeds the ${limitMb} MB limit for Cloudinary uploads`);
+  }
+
   const filename = sanitizeFilename(input.filename);
   const id = nanoid();
-  const key = mediaKey(id, filename);
-
-  const upload = await env.MEDIA.createMultipartUpload(key, {
-    httpMetadata: { contentType: input.mime },
+  const session = await provider.createMultipart({
+    id,
+    filename,
+    mime: input.mime,
+    kind: "video",
+    totalSize: input.size,
   });
 
   const now = Date.now();
@@ -333,7 +355,9 @@ export async function initVideoUpload(
       id,
       kind: "video",
       filename,
-      r2Key: key,
+      r2Key: session.storageKey,
+      provider: provider.name,
+      url: null,
       mime: input.mime,
       size: input.size,
       width: null,
@@ -341,13 +365,13 @@ export async function initVideoUpload(
       duration: null,
       alt: null,
       status: "uploading",
-      uploadId: upload.uploadId,
+      uploadId: session.uploadId,
       createdAt: now,
       createdBy: userId ?? null,
     })
     .run();
 
-  return { mediaId: id, uploadId: upload.uploadId, partSize: PART_SIZE };
+  return { mediaId: id, uploadId: session.uploadId, partSize: PART_SIZE };
 }
 
 function expectedPartLength(totalSize: number, partNumber: number): number {
@@ -372,9 +396,9 @@ export async function uploadVideoPart(
 ): Promise<UploadedPart> {
   const row = await loadUploading(db, args.mediaId, args.uploadId);
 
-  // R2 requires every part except the last to be the same size (≥5 MiB). We know the
-  // declared total size, so we can compute the exact expected length per part and reject
-  // a mismatch up front rather than failing opaquely at completion.
+  // Every part except the last must be exactly PART_SIZE (R2's ≥5 MiB equal-parts rule, which
+  // also satisfies Cloudinary's >5 MB chunk rule). We know the declared total, so we can reject
+  // a size mismatch up front rather than failing opaquely at completion.
   const expected = expectedPartLength(row.size, args.partNumber);
   if (expected < 0) throw badRequest(`Part number ${args.partNumber} is out of range`);
   if (args.contentLength !== null && args.contentLength !== expected) {
@@ -383,9 +407,35 @@ export async function uploadVideoPart(
     );
   }
 
-  const upload = env.MEDIA.resumeMultipartUpload(row.r2Key, args.uploadId);
-  const uploaded = await upload.uploadPart(args.partNumber, body);
-  return { partNumber: uploaded.partNumber, etag: uploaded.etag };
+  const totalParts = Math.max(1, Math.ceil(row.size / PART_SIZE));
+  const { part, final } = await getStorageProvider(env).uploadPart({
+    session: { uploadId: args.uploadId, storageKey: row.r2Key },
+    input: { id: row.id, filename: row.filename, mime: row.mime, kind: "video" },
+    partNumber: args.partNumber,
+    body,
+    contentLength: args.contentLength,
+    offset: (args.partNumber - 1) * PART_SIZE,
+    totalSize: row.size,
+    isFinal: args.partNumber === totalParts,
+  });
+
+  // Cloudinary returns the finished asset on the final chunk; capture it now (status stays
+  // `uploading` until the client's complete call flips it to `ready`). R2 leaves `final` unset.
+  if (final) {
+    await db
+      .update(media)
+      .set({
+        url: final.url ?? null,
+        size: final.bytes,
+        width: final.width ?? null,
+        height: final.height ?? null,
+        duration: final.duration ?? null,
+      })
+      .where(eq(media.id, row.id))
+      .run();
+  }
+
+  return part;
 }
 
 export interface CompleteVideoInput {
@@ -408,10 +458,27 @@ export async function completeVideoUpload(
   }
   const parts = [...input.parts].sort((a, b) => a.partNumber - b.partNumber);
 
-  const upload = env.MEDIA.resumeMultipartUpload(row.r2Key, input.uploadId);
-  let object;
+  // R2 assembles the parts here; Cloudinary already finalized on the last chunk (its asset was
+  // captured onto the row by uploadVideoPart), so hand that back through finalFromLastPart.
+  const finalFromLastPart: PutResult | undefined = row.url
+    ? {
+        storageKey: row.r2Key,
+        url: row.url,
+        bytes: row.size,
+        width: row.width ?? undefined,
+        height: row.height ?? undefined,
+        duration: row.duration ?? undefined,
+      }
+    : undefined;
+
+  let result: PutResult;
   try {
-    object = await upload.complete(parts);
+    result = await getStorageProvider(env).completeMultipart({
+      session: { uploadId: input.uploadId, storageKey: row.r2Key },
+      input: { id: row.id, filename: row.filename, mime: row.mime, kind: "video" },
+      parts,
+      finalFromLastPart,
+    });
   } catch {
     throw badRequest("Could not assemble the upload — parts are missing or the wrong size");
   }
@@ -422,10 +489,11 @@ export async function completeVideoUpload(
     .set({
       status: "ready",
       uploadId: null,
-      size: object.size,
-      width: input.width ?? null,
-      height: input.height ?? null,
-      duration: input.duration ?? null,
+      url: result.url ?? null,
+      size: result.bytes,
+      width: result.width ?? input.width ?? null,
+      height: result.height ?? input.height ?? null,
+      duration: result.duration ?? input.duration ?? null,
       createdAt: now,
     })
     .where(eq(media.id, mediaId))
@@ -442,7 +510,9 @@ export async function abortVideoUpload(
 ): Promise<void> {
   const row = await loadUploading(db, mediaId, uploadId);
   try {
-    await env.MEDIA.resumeMultipartUpload(row.r2Key, uploadId).abort();
+    await getStorageProvider(env).abortMultipart({
+      session: { uploadId, storageKey: row.r2Key },
+    });
   } catch {
     // Best effort — the row is removed regardless so the half-upload can't linger.
   }
@@ -466,14 +536,15 @@ export async function updateMedia(db: DrizzleDb, id: string, patch: { alt?: stri
 
 export async function deleteMedia(db: DrizzleDb, env: Env, id: string): Promise<void> {
   const row = await findMedia(db, id);
+  const provider = getStorageProvider(env);
   if (row.status === "uploading" && row.uploadId) {
     try {
-      await env.MEDIA.resumeMultipartUpload(row.r2Key, row.uploadId).abort();
+      await provider.abortMultipart({ session: { uploadId: row.uploadId, storageKey: row.r2Key } });
     } catch {
       /* ignore — fall through to object delete */
     }
   }
-  await env.MEDIA.delete(row.r2Key);
+  await provider.delete({ storageKey: row.r2Key, kind: row.kind });
   await db.delete(media).where(eq(media.id, id)).run();
 }
 

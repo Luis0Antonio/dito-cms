@@ -36,6 +36,13 @@
       "when": 1781395657310,
       "tag": "0004_living_dreadnoughts",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1781674979249,
+      "tag": "0005_abandoned_pepper_potts",
+      "breakpoints": true
     }
   ]
 }

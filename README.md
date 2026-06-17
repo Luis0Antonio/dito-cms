@@ -55,7 +55,7 @@ Once an instance is running, point any MCP client at it to manage content direct
 | Build / host | Vite 8 + `@cloudflare/vite-plugin`, Wrangler 4 |
 | Worker | Hono 4 |
 | Database | Cloudflare D1 + Drizzle ORM (SQLite) |
-| Storage | Cloudflare R2 |
+| Storage | Cloudflare R2 (or Cloudinary) |
 | Auth | Better Auth (email + password, `admin` + `apiKey` plugins) |
 | SPA | React 19, TanStack Router + Query, shadcn/ui, Tailwind v4 |
 | Validation | Zod 4 (shared isomorphic module) |
@@ -116,6 +116,25 @@ Optional. If `BETTER_AUTH_SECRET` is unset, the Worker auto-generates one and st
 the D1 `settings` table — so zero configuration is needed. For production, set it
 explicitly: `wrangler secret put BETTER_AUTH_SECRET` (see `.dev.vars.example`). A set value
 always wins over the stored fallback.
+
+### Media storage (R2 or Cloudinary)
+
+Media can live on **Cloudflare R2** (the default) or **Cloudinary** — chosen at deploy time by
+**which credentials you set**, nothing else:
+
+- **R2 (default):** no extra config. Objects are served from your own origin at
+  `/media/:id/:filename` with an immutable cache and Range support.
+- **Cloudinary:** set `CLOUDINARY_URL` (the `cloudinary://<api_key>:<api_secret>@<cloud_name>`
+  value from the Cloudinary Console). All media — images **and** video — then uploads to
+  Cloudinary and is served from its CDN; **no R2 bucket is required**. For a deployed Worker:
+  `wrangler secret put CLOUDINARY_URL`; for local dev, add it to `.dev.vars`.
+
+You only ever configure one — the other never blocks deployment. `bun run setup` prompts for the
+provider and, when you pick Cloudinary, stores the secret and removes the `r2_buckets` binding
+from `wrangler.jsonc` so the deploy needs no bucket. Switching providers does not migrate
+existing files; each object keeps serving from the backend it was uploaded to. Cloudinary upload
+size is governed by your Cloudinary plan (lower `MAX_CLOUDINARY_VIDEO_BYTES` in
+`src/shared/constants.ts` to cap video below the 2 GB default).
 
 ## Content model & authoring
 
@@ -217,7 +236,7 @@ and publish them. Revoking the key immediately `401`s the endpoint.
 | `/api/setup/status`, `/api/health` | first-run check, health | public |
 | `/api/admin/*` | Admin API | session cookie **or** Bearer API key |
 | `/api/v1/*` | Delivery API (published content) | public, CORS `*` |
-| `/media/:id/:filename` | Media from R2 (Range, ETag, immutable) | public |
+| `/media/:id/:filename` | Media — R2 bytes (Range, ETag, immutable), or 302 → Cloudinary | public |
 | `/mcp` | MCP server | Bearer API key |
 
 ## Plan limits & notes

@@ -15,6 +15,14 @@ export const MAX_IMAGE_BYTES = 25 * 1024 * 1024; // 25 MB
 /** Hard ceiling for a single multipart video upload. */
 export const MAX_VIDEO_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB
 
+/**
+ * Per-video cap applied only when the active storage provider is Cloudinary. Cloudinary's
+ * real maximum is governed by the deployer's plan (free tiers are far lower than 2 GB), so
+ * this is a safety valve: lower it to get a clean up-front error instead of a mid-upload
+ * failure. Defaults to the same 2 GB ceiling as R2.
+ */
+export const MAX_CLOUDINARY_VIDEO_BYTES = MAX_VIDEO_BYTES;
+
 /** Rich-text serialized size cap (D1 row stays well under 2 MB). */
 export const MAX_RICH_TEXT_BYTES = 256 * 1024;
 
