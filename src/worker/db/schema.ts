@@ -125,12 +125,19 @@ export const entries = sqliteTable(
 export type EntryRow = typeof entries.$inferSelect;
 
 /**
- * An uploaded asset stored in R2. The object lives at `r2_key` = `media/<id>/<filename>`
- * and is served publicly at `GET /media/:id/:filename` (the unguessable id makes the URL
- * effectively private; immutable cache because the key never changes for a given media).
- * `status` is `uploading` while a multipart video upload is in flight (`upload_id` holds the
- * R2 multipart id) and flips to `ready` on completion; direct image uploads land `ready`.
- * `width`/`height` (images + videos) and `duration` (videos) are captured client-side.
+ * An uploaded asset, stored on either Cloudflare R2 (default) or Cloudinary — selected at
+ * deploy time by the presence of credentials (see services/storage). `provider` records
+ * which backend owns this object so existing rows keep resolving after a switch.
+ *
+ * `r2_key` is the generic storage-key slot: the R2 object key `media/<id>/<filename>` for
+ * R2, or the Cloudinary `public_id` for Cloudinary. `url` is null for R2 (served from our
+ * own origin at `GET /media/:id/:filename`, immutable cache because the key never changes)
+ * and holds Cloudinary's absolute `secure_url` for Cloudinary (served from its CDN).
+ *
+ * `status` is `uploading` while a multipart/chunked video upload is in flight (`upload_id`
+ * holds the R2 multipart id or the Cloudinary X-Unique-Upload-Id) and flips to `ready` on
+ * completion; direct image uploads land `ready`. `width`/`height` (images + videos) and
+ * `duration` (videos) are captured client-side for R2, or from Cloudinary's upload response.
  */
 export const media = sqliteTable(
   "media",
@@ -138,7 +145,12 @@ export const media = sqliteTable(
     id: text("id").primaryKey(),
     kind: text("kind", { enum: ["image", "video"] }).notNull(),
     filename: text("filename").notNull(),
+    /** Storage-key slot: R2 object key `media/<id>/<filename>`, or the Cloudinary public_id. */
     r2Key: text("r2_key").notNull(),
+    /** Storage backend that owns this object. */
+    provider: text("provider", { enum: ["r2", "cloudinary"] }).notNull().default("r2"),
+    /** Absolute delivery URL for Cloudinary (secure_url); null for R2 (served from our origin). */
+    url: text("url"),
     mime: text("mime").notNull(),
     size: integer("size").notNull().default(0),
     width: integer("width"),
@@ -147,7 +159,7 @@ export const media = sqliteTable(
     duration: real("duration"),
     alt: text("alt"),
     status: text("status", { enum: ["uploading", "ready"] }).notNull().default("ready"),
-    /** R2 multipart upload id while a video upload is in flight; null once ready. */
+    /** Multipart upload id while a video upload is in flight; null once ready. */
     uploadId: text("upload_id"),
     createdAt: integer("created_at").notNull(),
     createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),

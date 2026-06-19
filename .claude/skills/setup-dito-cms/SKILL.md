@@ -6,10 +6,10 @@ description: Set up, run, deploy, or bootstrap Dito CMS — the self-hosted head
 # Setting up Dito CMS
 
 Dito CMS is a headless CMS that runs entirely in **one Cloudflare Worker**: an
-admin SPA, the REST APIs, a public read-only delivery API, media on **R2**,
-structured content on **D1**, Better Auth for auth, and a stateless **MCP
-server** at `POST /mcp`. One package, one deploy. This skill gets it running and
-— when asked — makes an AI agent a first-class customer of it.
+admin SPA, the REST APIs, a public read-only delivery API, media on **R2** (or
+**Cloudinary**), structured content on **D1**, Better Auth for auth, and a
+stateless **MCP server** at `POST /mcp`. One package, one deploy. This skill gets
+it running and — when asked — makes an AI agent a first-class customer of it.
 
 ## Pick a path
 
@@ -20,7 +20,7 @@ Choose based on what the user asked for. If it's ambiguous, ask them with
 | Path | What the agent does | When |
 |---|---|---|
 | **A. Local** | Install deps, migrate a local DB, run the dev server. Optionally create an admin + seed demo content. | "get it running", "let me test it", "run locally" |
-| **B. Deploy** | Provision D1+R2, deploy to the user's Cloudflare account, then hand off — the user creates the admin in the browser. | "deploy it", "ship it to Cloudflare" |
+| **B. Deploy** | Provision D1 (+ R2, or Cloudinary), deploy to the user's Cloudflare account, then hand off — the user creates the admin in the browser. | "deploy it", "ship it to Cloudflare" |
 | **C. Fully autonomous** | Path B **plus** create the admin + an API key headlessly, register the MCP server, and (optionally) start modelling content. | "set it up for me", "deploy and manage content", "make it AI-ready" |
 
 All three share the prerequisites below. Paths B and C also need Cloudflare access.
@@ -141,15 +141,23 @@ After the prerequisites (including Cloudflare auth):
 ```bash
 bun run setup
 ```
-`scripts/setup.ts` is idempotent: it creates the D1 database and R2 bucket, writes the real
-`database_id` into `wrangler.jsonc`, applies migrations to the remote D1, then **prompts**
-"Build and deploy now? [y/N]". Since you're driving it non-interactively, answer it:
+`scripts/setup.ts` is idempotent: it first **prompts for the media storage provider** (R2
+default, or Cloudinary), then creates the D1 database (and, for R2, the bucket), writes the
+real `database_id` into `wrangler.jsonc`, applies migrations to the remote D1, then **prompts**
+"Build and deploy now? [y/N]". Since you're driving it non-interactively, feed both prompts —
+a leading empty line keeps the R2 default:
 ```bash
-printf 'y\n' | bun run setup      # provision + migrate + build + deploy in one shot
+printf '\ny\n' | bun run setup    # R2 + provision + migrate + build + deploy in one shot
+```
+For Cloudinary (no R2 bucket needed — setup strips the `r2_buckets` binding and stores
+`CLOUDINARY_URL` as a secret after the deploy), answer the provider prompt `2` and paste the
+credentials when asked:
+```bash
+printf '2\ncloudinary://<key>:<secret>@<cloud>\ny\n' | bun run setup
 ```
 If piping into the prompt is unreliable in your shell, do it in two non-interactive steps:
 ```bash
-printf 'n\n' | bun run setup      # provision + patch wrangler.jsonc + migrate remote
+printf '\nn\n' | bun run setup    # R2: provision + patch wrangler.jsonc + migrate remote
 bun run deploy                    # build → migrate remote → wrangler deploy (no prompts)
 ```
 
@@ -158,6 +166,11 @@ bun run deploy                    # build → migrate remote → wrangler deploy
 - The auth secret auto-generates on first boot (stored in D1) — zero config needed. For
   production hardening you may set one explicitly:
   `npx wrangler secret put BETTER_AUTH_SECRET` (generate with `openssl rand -base64 32`).
+- **Media storage** is R2 by default. To use **Cloudinary** instead (images + video, no R2
+  bucket), set `CLOUDINARY_URL` — either via the setup prompt above, or after a deploy with
+  `npx wrangler secret put CLOUDINARY_URL`. Detection is automatic: if the secret is present
+  media goes to Cloudinary, otherwise to R2. Verify by uploading an image and checking its URL
+  is a `res.cloudinary.com` link (Cloudinary) vs a same-origin `/media/...` path (R2).
 - `wrangler.jsonc` now has a real `database_id` (no longer the `000…0` placeholder). That's
   expected for a deployed instance; the user can commit it to their own fork.
 

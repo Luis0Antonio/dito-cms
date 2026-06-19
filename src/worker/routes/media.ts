@@ -1,11 +1,17 @@
+import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 
+import { media } from "../db/schema";
 import type { AppEnv } from "../lib/app";
+import { isCloudinary, mediaKey, r2Binding } from "../services/storage";
 
-// Public media serving: GET /media/:id/:filename. The R2 key is reconstructed straight
-// from the path (`media/<id>/<filename>`) so there is no D1 read on the hot path. URLs are
-// unique per media id and content never changes → immutable cache. Range + If-None-Match
-// are delegated to R2 by handing it the request headers.
+// Public media serving: GET /media/:id/:filename.
+// - R2 (default): the key is reconstructed straight from the path (`media/<id>/<filename>`) so
+//   there is no D1 read on the hot path. URLs are unique per media id and content never changes
+//   → immutable cache. Range + If-None-Match are delegated to R2 via the request headers.
+// - Cloudinary: objects live on Cloudinary's CDN, so the media DTOs already point there and this
+//   route is normally bypassed. When hit directly it looks up the row and 302-redirects to the
+//   stored secure_url (Cloudinary's CDN handles Range/caching itself).
 export const mediaServeRouter = new Hono<AppEnv>();
 
 const IMMUTABLE = "public, max-age=31536000, immutable";
@@ -35,7 +41,26 @@ function resolveRange(range: R2Range, size: number): { offset: number; length: n
 }
 
 mediaServeRouter.get("/:id/:filename", async (c) => {
-  const key = `media/${c.req.param("id")}/${c.req.param("filename")}`;
+  // Cloudinary deploy: redirect to the stored CDN URL (rare — DTOs already link there directly).
+  if (isCloudinary(c.env)) {
+    const row = await c
+      .get("db")
+      .select({ url: media.url })
+      .from(media)
+      .where(eq(media.id, c.req.param("id")))
+      .get();
+    if (!row?.url) {
+      return c.json({ error: { code: "not_found", message: "Media not found" } }, 404);
+    }
+    return c.redirect(row.url, 302);
+  }
+
+  const bucket = r2Binding(c.env);
+  if (!bucket) {
+    return c.json({ error: { code: "not_found", message: "Media not found" } }, 404);
+  }
+
+  const key = mediaKey(c.req.param("id"), c.req.param("filename"));
   const reqHeaders = c.req.raw.headers;
   const rangeHeader = reqHeaders.get("range");
 
@@ -47,7 +72,7 @@ mediaServeRouter.get("/:id/:filename", async (c) => {
     if (cached) return cached;
   }
 
-  const object = await c.env.MEDIA.get(key, {
+  const object = await bucket.get(key, {
     onlyIf: reqHeaders,
     range: rangeHeader ? reqHeaders : undefined,
   });

@@ -7,3 +7,13 @@
 #
 # Generate one with: openssl rand -base64 32
 BETTER_AUTH_SECRET=
+
+# Cloudinary credentials. OPTIONAL — selects the media storage backend.
+#
+# If set, ALL media (images + video) is stored on Cloudinary and NO R2 bucket is needed.
+# If unset, media uses the Cloudflare R2 bucket bound as `MEDIA` (the default). You only ever
+# configure one — the other never blocks deployment. Copy this value verbatim from the
+# Cloudinary Console → Settings → API Keys ("API environment variable", without the leading
+# `CLOUDINARY_URL=`). For a deployed Worker set it as a secret instead:
+#   wrangler secret put CLOUDINARY_URL
+CLOUDINARY_URL=
