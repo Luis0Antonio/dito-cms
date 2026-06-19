@@ -27,7 +27,7 @@ export function Sidebar(): React.ReactElement {
   const { data: settings } = useQuery(projectSettingsQueryOptions);
   const projectName = settings?.projectName ?? APP_NAME;
   return (
-    <aside className="flex h-dvh w-60 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
+    <aside className="sticky top-0 flex h-dvh w-60 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
       <div className="flex h-14 items-center gap-2 px-4">
         {settings?.logo ? (
           <img src={settings.logo} alt="" className="size-6 shrink-0 rounded object-contain" />
