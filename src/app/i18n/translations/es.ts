@@ -204,12 +204,13 @@ export const es = {
 
   // Media - WebP conversion (in-browser, before upload)
   "media.webp.title": "Convertir a WebP",
-  "media.webp.description": "Recodifica en tu navegador antes de subir: archivos más livianos con las mismas dimensiones.",
+  "media.webp.description": "Recodifica y redimensiona en tu navegador antes de subir: archivos mucho más livianos, optimizados para la web.",
   "media.webp.quality": "Calidad",
   "media.webp.hint": "Menor calidad significa archivos más livianos con compresión más visible.",
+  "media.webp.resizeNote": "Las imágenes grandes se reducen a {max}px en su lado más largo.",
   "media.webp.estimating": "Calculando…",
   "media.webp.smaller": "{percent}% más liviano",
-  "media.webp.larger": "{percent}% más pesado",
+  "media.webp.noGain": "Ya es más liviana que WebP — se conserva la original.",
   "media.webp.batchNote": "La misma calidad se aplica a las {count} imágenes.",
   "media.webp.othersNote": "Los demás archivos se subirán sin cambios.",
   "media.webp.convert": "Subir como WebP",
