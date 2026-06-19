@@ -131,7 +131,10 @@ function mediaForMcp(origin: string, m: MediaDTO) {
     id: m.id,
     kind: m.kind,
     filename: m.filename,
-    url: `${origin}${m.url}`,
+    // m.url is a same-origin relative path today; resolve it against origin so the result is
+    // always absolute. Using new URL() (not string concat) keeps it correct even if m.url ever
+    // becomes absolute (e.g. a CDN/public-bucket URL) — it would otherwise yield `${origin}https://…`.
+    url: new URL(m.url, origin).href,
     mime: m.mime,
     width: m.width,
     height: m.height,
