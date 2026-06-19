@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { ArrowRightIcon, Loader2Icon } from "lucide-react";
 
-import { canEncodeToWebp, encodeToWebp } from "./webp";
+import { canEncodeToWebp, encodeToWebp, MAX_EDGE } from "./webp";
 
 import { Button } from "@/app/components/ui/button";
 import {
@@ -128,7 +128,11 @@ export function WebpConvertDialog({ files, onCancel, onComplete }: WebpConvertDi
       files.map(async (file) => {
         if (!canEncodeToWebp(file)) return file;
         try {
-          return await encodeToWebp(file, quality / 100);
+          const webp = await encodeToWebp(file, quality / 100);
+          // Optimization only: re-encoding a small or already-compressed image
+          // (often a JPEG) can produce a *larger* WebP. Keep whichever is
+          // smaller so an upload is never bigger than the file the user picked.
+          return webp.size < file.size ? webp : file;
         } catch {
           failures += 1;
           return file; // fall back to the original on a per-file failure
@@ -140,7 +144,12 @@ export function WebpConvertDialog({ files, onCancel, onComplete }: WebpConvertDi
     onComplete(out);
   };
 
-  const delta = estimate && estimate.before > 0 ? Math.round((1 - estimate.after / estimate.before) * 100) : null;
+  // Does WebP actually shrink the sample? When it doesn't (small or already
+  // compressed images), `handleConvert` keeps the original, so the estimate
+  // shows "kept original" instead of advertising a larger output.
+  const willConvert = estimate !== null && estimate.after < estimate.before;
+  const delta =
+    estimate && estimate.before > 0 ? Math.round((1 - estimate.after / estimate.before) * 100) : 0;
 
   return (
     <Dialog
@@ -169,18 +178,19 @@ export function WebpConvertDialog({ files, onCancel, onComplete }: WebpConvertDi
             {sample ? <p className="truncate font-medium">{sample.name}</p> : null}
             <div className="mt-1 flex items-center gap-1.5 text-muted-foreground">
               {estimate ? (
-                <>
-                  <span>{formatBytes(estimate.before)}</span>
-                  <ArrowRightIcon className="size-3.5" />
-                  <span className="font-medium text-foreground">{formatBytes(estimate.after)}</span>
-                  {delta !== null ? (
-                    <span className={delta >= 0 ? "text-success" : "text-muted-foreground"}>
-                      {delta >= 0
-                        ? t("media.webp.smaller", { percent: delta })
-                        : t("media.webp.larger", { percent: Math.abs(delta) })}
-                    </span>
-                  ) : null}
-                </>
+                willConvert ? (
+                  <>
+                    <span>{formatBytes(estimate.before)}</span>
+                    <ArrowRightIcon className="size-3.5" />
+                    <span className="font-medium text-foreground">{formatBytes(estimate.after)}</span>
+                    <span className="text-success">{t("media.webp.smaller", { percent: delta })}</span>
+                  </>
+                ) : (
+                  <>
+                    <span>{formatBytes(estimate.before)}</span>
+                    <span className="text-muted-foreground">{t("media.webp.noGain")}</span>
+                  </>
+                )
               ) : (
                 <span className="inline-flex items-center gap-1.5">
                   <Loader2Icon className="size-3.5 animate-spin" />
@@ -205,6 +215,7 @@ export function WebpConvertDialog({ files, onCancel, onComplete }: WebpConvertDi
             aria-label={t("media.webp.quality")}
           />
           <p className="text-xs text-muted-foreground">{t("media.webp.hint")}</p>
+          <p className="text-xs text-muted-foreground">{t("media.webp.resizeNote", { max: MAX_EDGE })}</p>
         </div>
 
         {convertible.length > 1 ? (

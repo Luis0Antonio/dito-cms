@@ -74,23 +74,54 @@ function canvasToWebp(canvas: HTMLCanvasElement, quality: number): Promise<Blob 
 }
 
 /**
- * Re-encode an image file as WebP at the given quality (0..1), preserving its
- * pixel dimensions. Returns a new `File` with a `.webp` name and `image/webp`
- * type. Rejects if the image can't be decoded or the browser can't produce
- * WebP, so callers can fall back to the original.
+ * Largest edge (px) we keep when re-encoding. A full-resolution phone/tablet
+ * photo (often 4000px+) is far larger than any web layout needs, so capping the
+ * longest side is what actually shrinks delivery — re-encoding at full size
+ * barely helps and can even grow the file. Smaller images are never upscaled.
  */
-export async function encodeToWebp(file: File, quality: number): Promise<File> {
+export const MAX_EDGE = 2048;
+
+/** Scale (w,h) down so its longest edge is at most `maxEdge`, keeping aspect ratio. Never upscales. */
+function fitWithin(width: number, height: number, maxEdge: number): { width: number; height: number } {
+  const longest = Math.max(width, height);
+  if (longest <= maxEdge) return { width, height };
+  const scale = maxEdge / longest;
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+  };
+}
+
+/**
+ * Re-encode an image file as WebP at the given quality (0..1), downscaling so
+ * its longest edge is at most `maxEdge` (defaults to {@link MAX_EDGE}). Returns
+ * a new `File` with a `.webp` name and `image/webp` type. Rejects if the image
+ * can't be decoded or the browser can't produce WebP, so callers can fall back
+ * to the original.
+ */
+export async function encodeToWebp(file: File, quality: number, maxEdge: number = MAX_EDGE): Promise<File> {
   const decoded = await decode(file);
   try {
+    const target = fitWithin(decoded.width, decoded.height, maxEdge);
     const canvas = document.createElement("canvas");
-    canvas.width = decoded.width;
-    canvas.height = decoded.height;
+    canvas.width = target.width;
+    canvas.height = target.height;
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("Canvas 2D context unavailable");
-    ctx.drawImage(decoded.source, 0, 0);
+    // High-quality resampling so the downscaled image still looks crisp.
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(decoded.source, 0, 0, target.width, target.height);
 
     const blob = await canvasToWebp(canvas, quality);
-    if (!blob) throw new Error("WebP encoding is not supported in this browser");
+    // `canvas.toBlob` silently falls back to PNG when the browser can't encode
+    // WebP (notably older Safari / iPadOS): it hands back a non-null PNG blob
+    // that we'd otherwise mislabel `.webp`. A lossless PNG re-encode of a photo
+    // is far *larger* than the source (a 7 MB JPEG balloons to ~10 MB), so treat
+    // any non-WebP result as unsupported and let callers keep the original.
+    if (!blob || blob.type !== "image/webp") {
+      throw new Error("WebP encoding is not supported in this browser");
+    }
 
     return new File([blob], replaceExtension(file.name, "webp"), {
       type: "image/webp",

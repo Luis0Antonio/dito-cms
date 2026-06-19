@@ -206,12 +206,13 @@ export const en: Record<TranslationKey, string> = {
 
   // Media - WebP conversion (in-browser, before upload)
   "media.webp.title": "Convert to WebP",
-  "media.webp.description": "Re-encode in your browser before uploading — smaller files at the same dimensions.",
+  "media.webp.description": "Re-encode and resize in your browser before uploading — much smaller files, sized for the web.",
   "media.webp.quality": "Quality",
   "media.webp.hint": "Lower quality means smaller files with more visible compression.",
+  "media.webp.resizeNote": "Large images are scaled down to {max}px on the longest side.",
   "media.webp.estimating": "Estimating…",
   "media.webp.smaller": "{percent}% smaller",
-  "media.webp.larger": "{percent}% larger",
+  "media.webp.noGain": "Already smaller than WebP — keeping the original.",
   "media.webp.batchNote": "The same quality applies to all {count} images.",
   "media.webp.othersNote": "Other selected files will upload unchanged.",
   "media.webp.convert": "Upload as WebP",
