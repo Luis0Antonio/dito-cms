@@ -33,6 +33,12 @@ export const collectionDetailQueryOptions = (slug: string) =>
       );
       return collection;
     },
+    // The schema editor and collection pages must always reflect the latest saved
+    // state. The global 10s staleTime (see app/api/query-client.ts) otherwise lets a
+    // remount within that window render cached data — so editing the schema, leaving,
+    // and coming back could briefly show the old value until a hard refresh. Opt this
+    // view out of the window: always revalidate on (re)mount.
+    refetchOnMount: "always",
   });
 
 export interface CreateCollectionBody {
