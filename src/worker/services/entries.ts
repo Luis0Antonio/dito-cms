@@ -1,7 +1,6 @@
 import { and, asc, count, eq, isNull, like, sql, type SQL } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { nanoid } from "nanoid";
-import { ZodError } from "zod";
 
 import type { DrizzleDb } from "../db/client";
 import {
@@ -13,14 +12,13 @@ import {
   type FieldRow,
 } from "../db/schema";
 import { hashString } from "../lib/hash";
-import { badRequest, conflict, notFound, validationError, zodToFieldErrors } from "../lib/errors";
+import { badRequest, conflict, notFound, validationError } from "../lib/errors";
 import { assertMediaRefs } from "./media";
+import { regenerateRichText, seedDefaults, validateFieldData } from "./field-data";
 
-import { FIELD_TYPES, parseFieldOptions, type FieldOptions } from "@/shared/field-types";
-import { buildDraftSchema, buildPublishSchema, type FieldDefinition } from "@/shared/validation";
-import { plainTextToDoc, renderRichTextHtml } from "@/shared/richtext";
+import { parseFieldOptions, type FieldOptions } from "@/shared/field-types";
+import { type FieldDefinition } from "@/shared/validation";
 import { isValidSlug } from "@/shared/slug";
-import { MAX_RICH_TEXT_BYTES } from "@/shared/constants";
 import type {
   EntryData,
   EntryDetail,
@@ -164,72 +162,12 @@ function mapSummary(row: EntryRow, titleField: string | null): EntrySummary {
 
 // --- normalization + validation ----------------------------------------------
 
-function byteLength(value: string): number {
-  return new TextEncoder().encode(value).length;
-}
-
-/**
- * Regenerate every rich_text field's HTML server-side from its JSON doc — the client
- * value is never trusted (no stored XSS) — and enforce the size cap. Returns a copy.
- *
- * The incoming value may be the editor's `{ json, html }` (html ignored), a bare TipTap
- * doc (`{ type: "doc", … }`), or a plain string (wrapped into paragraphs) — the latter two
- * let the MCP server author rich_text without constructing the full shape.
- */
-function regenerateRichText(defs: FieldDefinition[], data: EntryData): EntryData {
-  const out: EntryData = { ...data };
-  for (const def of defs) {
-    if (def.type !== "rich_text") continue;
-    const value = out[def.name];
-    if (value === null || value === undefined) continue;
-
-    let json: unknown;
-    if (typeof value === "string") {
-      json = plainTextToDoc(value);
-    } else if (typeof value === "object" && "json" in (value as object)) {
-      json = (value as { json: unknown }).json;
-    } else if (typeof value === "object" && (value as { type?: unknown }).type === "doc") {
-      json = value;
-    } else {
-      // Wrong shape — let the schema below surface a field-keyed error.
-      continue;
-    }
-    let html: string;
-    try {
-      html = renderRichTextHtml(json);
-    } catch (err) {
-      if (err instanceof ZodError) {
-        throw validationError("Invalid rich text content", { [def.name]: "Invalid rich text content" });
-      }
-      throw err;
-    }
-    if (byteLength(html) > MAX_RICH_TEXT_BYTES) {
-      throw validationError("Rich text is too large", { [def.name]: "Content is too large" });
-    }
-    out[def.name] = { json, html };
-  }
-  return out;
-}
-
+/** Validate entry data with entry-specific messages (wraps the shared validator). */
 function validate(defs: FieldDefinition[], data: EntryData, mode: "draft" | "publish"): EntryData {
-  const schema = mode === "publish" ? buildPublishSchema(defs) : buildDraftSchema(defs);
-  const result = schema.safeParse(data);
-  if (!result.success) {
-    throw validationError(
-      mode === "publish" ? "Entry is not ready to publish" : "Some fields are invalid",
-      zodToFieldErrors(result.error),
-    );
-  }
-  return result.data as EntryData;
-}
-
-function seedDefaults(defs: FieldDefinition[]): EntryData {
-  const out: EntryData = {};
-  for (const def of defs) {
-    const value = FIELD_TYPES[def.type].resolveDefault(def.options);
-    if (value !== undefined) out[def.name] = value;
-  }
-  return out;
+  return validateFieldData(defs, data, mode, {
+    draft: "Some fields are invalid",
+    publish: "Entry is not ready to publish",
+  });
 }
 
 function normalizeEntrySlug(slug: string | null | undefined): string | null {

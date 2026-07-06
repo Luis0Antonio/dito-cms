@@ -8,6 +8,7 @@ import type { QueryClient } from "@tanstack/react-query";
 
 import { sessionQueryOptions } from "./api/session";
 import { setupStatusQueryOptions } from "./api/system";
+import { projectSettingsQueryOptions } from "./api/settings";
 import { AppShell } from "./components/layout/app-shell";
 import { LoginPage } from "./features/auth/login-page";
 import { SetupPage } from "./features/auth/setup-page";
@@ -16,6 +17,11 @@ import { SchemaBuilderPage } from "./features/collections/builder/schema-builder
 import { CollectionPage } from "./features/entries/collection-page";
 import { NewEntryPage, EditEntryPage } from "./features/entries/entry-editor-page";
 import { MediaPage } from "./features/media/media-page";
+import { StoreLayout } from "./features/store/store-layout";
+import { ProductsListPage } from "./features/store/products-list-page";
+import { CategoriesPage } from "./features/store/categories-page";
+import { ProductSchemaPage } from "./features/store/product-schema-page";
+import { NewProductPage, EditProductPage } from "./features/store/product-editor-page";
 import { SettingsLayout } from "./features/settings/settings-layout";
 import { GeneralSettingsPage } from "./features/settings/general-page";
 import { UsersPage } from "./features/settings/users-page";
@@ -128,6 +134,67 @@ const mediaRoute = createRoute({
   staticData: { title: "Media" },
 });
 
+// Commerce gate: the whole Store section is hidden unless the module is enabled.
+const ensureCommerceEnabled = async ({
+  context,
+}: {
+  context: RouterContext;
+}): Promise<void> => {
+  const settings = await context.queryClient.ensureQueryData(projectSettingsQueryOptions);
+  if (!settings.commerceEnabled) throw redirect({ to: "/collections" });
+};
+
+const storeRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/store",
+  component: StoreLayout,
+  staticData: { title: "Store" },
+  beforeLoad: ensureCommerceEnabled,
+});
+
+const storeIndexRoute = createRoute({
+  getParentRoute: () => storeRoute,
+  path: "/",
+  beforeLoad: () => {
+    throw redirect({ to: "/store/products" });
+  },
+});
+
+const storeProductsRoute = createRoute({
+  getParentRoute: () => storeRoute,
+  path: "products",
+  component: ProductsListPage,
+});
+
+const storeCategoriesRoute = createRoute({
+  getParentRoute: () => storeRoute,
+  path: "categories",
+  component: CategoriesPage,
+});
+
+const storeSchemaRoute = createRoute({
+  getParentRoute: () => storeRoute,
+  path: "schema",
+  component: ProductSchemaPage,
+});
+
+// The product editor is a full page (outside the tabbed Store shell).
+const newProductRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/store/products/new",
+  component: NewProductPage,
+  staticData: { title: "New product" },
+  beforeLoad: ensureCommerceEnabled,
+});
+
+const editProductRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/store/products/$slug",
+  component: EditProductPage,
+  staticData: { title: "Product" },
+  beforeLoad: ensureCommerceEnabled,
+});
+
 const settingsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/settings",
@@ -184,6 +251,14 @@ export const routeTree = rootRoute.addChildren([
     newEntryRoute,
     editEntryRoute,
     mediaRoute,
+    storeRoute.addChildren([
+      storeIndexRoute,
+      storeProductsRoute,
+      storeCategoriesRoute,
+      storeSchemaRoute,
+    ]),
+    newProductRoute,
+    editProductRoute,
     settingsRoute.addChildren([
       settingsIndexRoute,
       generalSettingsRoute,

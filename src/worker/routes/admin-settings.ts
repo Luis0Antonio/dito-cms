@@ -2,7 +2,7 @@ import { Hono } from "hono";
 
 import type { AppEnv } from "../lib/app";
 import type { DrizzleDb } from "../db/client";
-import { getSetting, setSetting } from "../services/settings";
+import { getSetting, setSetting, isCommerceEnabled, setCommerceEnabled } from "../services/settings";
 import { badRequest } from "../lib/errors";
 
 import { APP_NAME, MAX_LOGO_DATA_URL_BYTES } from "@/shared/constants";
@@ -23,7 +23,11 @@ async function readLogo(db: DrizzleDb): Promise<string | null> {
 }
 
 async function readSettings(db: DrizzleDb): Promise<ProjectSettings> {
-  return { projectName: await readProjectName(db), logo: await readLogo(db) };
+  return {
+    projectName: await readProjectName(db),
+    logo: await readLogo(db),
+    commerceEnabled: await isCommerceEnabled(db),
+  };
 }
 
 // Normalize a logo value for storage. Empty → cleared. Otherwise it must be an inline image
@@ -57,6 +61,9 @@ settingsRouter.patch("/", async (c) => {
     await setSetting(db, "project_logo", normalizeLogo(body.logo));
   } else if (body.logo === null) {
     await setSetting(db, "project_logo", "");
+  }
+  if (typeof body.commerceEnabled === "boolean") {
+    await setCommerceEnabled(db, body.commerceEnabled);
   }
   return c.json(await readSettings(db));
 });

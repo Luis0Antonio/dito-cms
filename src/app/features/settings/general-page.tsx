@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from "@/app/components/ui/select";
 import { Skeleton } from "@/app/components/ui/skeleton";
+import { Switch } from "@/app/components/ui/switch";
 import { CopyButton } from "@/app/components/common/copy-button";
 import { ErrorState } from "@/app/components/common/error-state";
 
@@ -94,6 +95,17 @@ export function GeneralSettingsPage(): React.ReactElement {
       queryClient.setQueryData<ProjectSettings>(settingsKeys.all, result);
       setName(result.projectName);
       setLogo(result.logo);
+      toast.success(t("settings.general.saved"));
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : t("settings.general.saveError")),
+  });
+
+  // The Store toggle saves immediately (no save button). Writing the fresh settings back into
+  // the cache makes the sidebar nav and route guards (which read the same query) react at once.
+  const toggleStore = useMutation({
+    mutationFn: (enabled: boolean) => updateProjectSettings({ commerceEnabled: enabled }),
+    onSuccess: (result) => {
+      queryClient.setQueryData<ProjectSettings>(settingsKeys.all, result);
       toast.success(t("settings.general.saved"));
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : t("settings.general.saveError")),
@@ -253,6 +265,26 @@ export function GeneralSettingsPage(): React.ReactElement {
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">{t("settings.general.themeHint")}</p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">{t("settings.general.store")}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex max-w-xl items-center justify-between gap-4">
+            <div className="space-y-0.5">
+              <Label htmlFor="store-enabled">{t("settings.general.storeEnable")}</Label>
+              <p className="text-xs text-muted-foreground">{t("settings.general.storeHint")}</p>
+            </div>
+            <Switch
+              id="store-enabled"
+              checked={data?.commerceEnabled ?? false}
+              onCheckedChange={(v) => toggleStore.mutate(v)}
+              disabled={!data || toggleStore.isPending}
+            />
           </div>
         </CardContent>
       </Card>

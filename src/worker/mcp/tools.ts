@@ -23,10 +23,26 @@ import {
   type UpdateEntryPatch,
 } from "../services/entries";
 import { listMedia, uploadMediaFromUrl } from "../services/media";
+import { isCommerceEnabled, setCommerceEnabled } from "../services/settings";
+import {
+  createProduct,
+  deleteProduct,
+  getProduct,
+  listProducts,
+  updateProduct,
+} from "../services/store/products";
+import {
+  createCategory,
+  deleteCategory,
+  getCategory,
+  listCategories,
+  updateCategory,
+} from "../services/store/categories";
+import { getProductFields, setProductFields } from "../services/store/product-schema";
 
 import { FIELD_TYPE_LIST, type FieldOptions } from "@/shared/field-types";
 import { APP_NAME, APP_VERSION } from "@/shared/constants";
-import type { EntryData, EntryDetail, MediaDTO } from "@/shared/api-types";
+import type { CategoryDTO, EntryData, EntryDetail, MediaDTO, ProductDetail, ProductStatus } from "@/shared/api-types";
 
 // The MCP toolset: thin wrappers over the same services the admin API uses, so validation,
 // publish semantics and media checks are identical. Outputs are deliberately compact (the
@@ -185,6 +201,7 @@ export const TOOLS: ToolDef[] = [
       const cols = await listCollections(ctx.db);
       const mediaList = await listMedia(ctx.db, { limit: 1 });
       const entriesTotal = cols.reduce((sum, c) => sum + c.entryCount, 0);
+      const commerceEnabled = await isCommerceEnabled(ctx.db);
       return {
         name: APP_NAME,
         version: APP_VERSION,
@@ -198,6 +215,9 @@ export const TOOLS: ToolDef[] = [
         counts: { collections: cols.length, entries: entriesTotal, media: mediaList.total },
         collections: cols.map((c) => ({ slug: c.slug, name: c.name, type: c.type, fields: c.fieldCount, entries: c.entryCount })),
         fieldTypes: FIELD_TYPE_REFERENCE,
+        // Optional Store module. When enabled, the store_* tools below become available and the
+        // catalog is served (uncached) under /api/commerce/*. Toggle with set_store_enabled.
+        store: { enabled: commerceEnabled },
         notes: [
           "Collections hold many entries; singletons hold exactly one (auto-created on first edit/publish).",
           "Entries are draft → publish. Delivery serves only published data — set publish:true on create_entry, or call publish_entry.",
@@ -205,6 +225,21 @@ export const TOOLS: ToolDef[] = [
           "picture/video fields store a media id — obtain one via list_media or upload_media_from_url.",
         ],
       };
+    },
+  }),
+
+  defineTool({
+    name: "set_store_enabled",
+    description:
+      "Enable or disable the optional Store (commerce) module. When enabled, the store_* tools " +
+      "(products, categories, product schema) become available and the public catalog is served " +
+      "under /api/commerce/*. OFF by default. This tool is always available regardless of the toggle.",
+    schema: z.object({
+      enabled: z.boolean().describe("true to enable the Store module, false to disable it."),
+    }),
+    handler: async (ctx, args) => {
+      await setCommerceEnabled(ctx.db, args.enabled);
+      return { store: { enabled: args.enabled } };
     },
   }),
 
@@ -449,6 +484,242 @@ export const TOOLS: ToolDef[] = [
     handler: async (ctx, args) => {
       const m = await uploadMediaFromUrl(ctx.db, ctx.env, { url: args.url, alt: args.alt, filename: args.filename }, ctx.userId);
       return mediaForMcp(ctx.origin, m);
+    },
+  }),
+];
+
+// --- Store (commerce) tools --------------------------------------------------
+// Gated: these are only listed and callable when the Store module is enabled (see
+// mcp/server.ts). The always-available `set_store_enabled` lives in TOOLS above.
+
+function summarizeProduct(p: ProductDetail) {
+  return {
+    slug: p.slug,
+    name: p.name,
+    status: p.status,
+    priceAmount: p.priceAmount,
+    sku: p.sku,
+    stock: p.stock,
+    categoryId: p.categoryId,
+    customData: p.customData,
+    images: p.images.length,
+  };
+}
+
+function summarizeCategory(c: CategoryDTO) {
+  return { slug: c.slug, name: c.name, description: c.description, parentId: c.parentId };
+}
+
+/** Resolve a category slug to its internal id (the column products store). */
+async function resolveCategoryId(ctx: ToolContext, slug: string): Promise<string> {
+  return (await getCategory(ctx.db, slug)).id;
+}
+
+const productInputFields = {
+  name: z.string().optional().describe("Display name."),
+  description: z.string().nullable().optional(),
+  status: z.enum(["draft", "active", "archived"]).optional().describe("draft (default), active (served by the catalog) or archived."),
+  priceAmount: z.number().int().min(0).optional().describe("Price in minor currency units (e.g. cents). Integer."),
+  sku: z.string().nullable().optional().describe("Stock-keeping unit. Unique when set; null to clear."),
+  stock: z.number().int().min(0).nullable().optional().describe("Units in stock; null = untracked."),
+  category: z.string().nullable().optional().describe("Category slug. null to clear."),
+  customData: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe("Custom-field values keyed by product field name (see get_product_schema)."),
+  imageIds: z.array(z.string()).optional().describe("Ordered media ids (images) for the gallery. Replaces the gallery."),
+};
+
+export const STORE_TOOLS: ToolDef[] = [
+  defineTool({
+    name: "list_products",
+    description: "List products (compact: slug, name, status, price, sku, stock). Filter by status, category slug, search; paginates.",
+    schema: z.object({
+      status: z.enum(["draft", "active", "archived"]).optional(),
+      category: z.string().optional().describe("Filter by category slug."),
+      search: z.string().optional().describe("Substring match over name and SKU."),
+      limit: z.number().int().min(1).max(100).optional().describe("Default 50."),
+      offset: z.number().int().min(0).optional(),
+    }),
+    handler: async (ctx, args) => {
+      const categoryId = args.category ? await resolveCategoryId(ctx, args.category) : undefined;
+      const r = await listProducts(ctx.db, {
+        status: args.status as ProductStatus | undefined,
+        categoryId,
+        search: args.search,
+        limit: args.limit,
+        offset: args.offset,
+      });
+      return {
+        total: r.total,
+        products: r.products.map((p) => ({
+          slug: p.slug,
+          name: p.name,
+          status: p.status,
+          priceAmount: p.priceAmount,
+          sku: p.sku,
+          stock: p.stock,
+          category: p.categoryName,
+        })),
+      };
+    },
+  }),
+
+  defineTool({
+    name: "get_product",
+    description: "Get one product by slug, including its custom-field values and image gallery.",
+    schema: z.object({ slug: z.string() }),
+    handler: async (ctx, args) => {
+      const p = await getProduct(ctx.db, args.slug);
+      return { ...summarizeProduct(p), images: p.images.map((m) => mediaForMcp(ctx.origin, m)) };
+    },
+  }),
+
+  defineTool({
+    name: "create_product",
+    description:
+      "Create a product. priceAmount is in minor currency units. Set status:'active' to serve it from the " +
+      "public catalog (this enforces required custom fields). Use get_product_schema for the custom fields.",
+    schema: z.object({
+      slug: z.string().describe("URL-safe slug, lowercase. Immutable-ish (changeable but breaks links)."),
+      ...productInputFields,
+      name: z.string().describe("Display name."),
+    }),
+    handler: async (ctx, args) => {
+      const categoryId = typeof args.category === "string" ? await resolveCategoryId(ctx, args.category) : null;
+      const p = await createProduct(
+        ctx.db,
+        {
+          slug: args.slug,
+          name: args.name,
+          description: args.description ?? null,
+          status: args.status as ProductStatus | undefined,
+          priceAmount: args.priceAmount,
+          sku: args.sku,
+          stock: args.stock,
+          categoryId,
+          customData: args.customData as EntryData | undefined,
+          imageIds: args.imageIds,
+        },
+        ctx.userId,
+      );
+      return summarizeProduct(p);
+    },
+  }),
+
+  defineTool({
+    name: "update_product",
+    description: "Update a product by slug. Provided custom fields are merged into existing customData; imageIds (if given) replaces the gallery.",
+    schema: z.object({ slug: z.string(), ...productInputFields }),
+    handler: async (ctx, args) => {
+      const patch: Parameters<typeof updateProduct>[2] = {};
+      if (args.name !== undefined) patch.name = args.name;
+      if (args.description !== undefined) patch.description = args.description;
+      if (args.status !== undefined) patch.status = args.status as ProductStatus;
+      if (args.priceAmount !== undefined) patch.priceAmount = args.priceAmount;
+      if (args.sku !== undefined) patch.sku = args.sku;
+      if (args.stock !== undefined) patch.stock = args.stock;
+      if (args.category !== undefined) {
+        patch.categoryId = typeof args.category === "string" ? await resolveCategoryId(ctx, args.category) : null;
+      }
+      if (args.customData !== undefined) patch.customData = args.customData as EntryData;
+      if (args.imageIds !== undefined) patch.imageIds = args.imageIds;
+      return summarizeProduct(await updateProduct(ctx.db, args.slug, patch, ctx.userId));
+    },
+  }),
+
+  defineTool({
+    name: "delete_product",
+    description: "Permanently delete a product. Pass confirm equal to the slug to proceed.",
+    schema: z.object({ slug: z.string(), confirm: z.string().describe("Must equal the slug.") }),
+    handler: async (ctx, args) => {
+      await deleteProduct(ctx.db, args.slug, args.confirm);
+      return { ok: true, deleted: args.slug };
+    },
+  }),
+
+  defineTool({
+    name: "list_categories",
+    description: "List product categories with their product counts.",
+    schema: z.object({}),
+    handler: async (ctx) => {
+      const cats = await listCategories(ctx.db);
+      return cats.map((c) => ({ slug: c.slug, name: c.name, productCount: c.productCount, parentId: c.parentId }));
+    },
+  }),
+
+  defineTool({
+    name: "create_category",
+    description: "Create a product category. `parent` is an optional parent category slug.",
+    schema: z.object({
+      slug: z.string().describe("URL-safe slug, lowercase."),
+      name: z.string(),
+      description: z.string().nullable().optional(),
+      parent: z.string().nullable().optional().describe("Parent category slug."),
+    }),
+    handler: async (ctx, args) => {
+      const parentId = typeof args.parent === "string" ? (await getCategory(ctx.db, args.parent)).id : null;
+      const c = await createCategory(ctx.db, {
+        slug: args.slug,
+        name: args.name,
+        description: args.description ?? null,
+        parentId,
+      });
+      return summarizeCategory(c);
+    },
+  }),
+
+  defineTool({
+    name: "update_category",
+    description: "Update a category by slug. `parent` is a parent category slug, or null to clear.",
+    schema: z.object({
+      slug: z.string(),
+      name: z.string().optional(),
+      description: z.string().nullable().optional(),
+      parent: z.string().nullable().optional(),
+    }),
+    handler: async (ctx, args) => {
+      const patch: { name?: string; description?: string | null; parentId?: string | null } = {};
+      if (args.name !== undefined) patch.name = args.name;
+      if (args.description !== undefined) patch.description = args.description;
+      if (args.parent !== undefined) {
+        patch.parentId = typeof args.parent === "string" ? (await getCategory(ctx.db, args.parent)).id : null;
+      }
+      return summarizeCategory(await updateCategory(ctx.db, args.slug, patch));
+    },
+  }),
+
+  defineTool({
+    name: "delete_category",
+    description: "Delete a category. Products in it keep existing but lose the category. Pass confirm equal to the slug.",
+    schema: z.object({ slug: z.string(), confirm: z.string().describe("Must equal the slug.") }),
+    handler: async (ctx, args) => {
+      await deleteCategory(ctx.db, args.slug, args.confirm);
+      return { ok: true, deleted: args.slug };
+    },
+  }),
+
+  defineTool({
+    name: "get_product_schema",
+    description: "Get the shared product custom-field schema (one field set applied to all products).",
+    schema: z.object({}),
+    handler: async (ctx) => {
+      const fields = await getProductFields(ctx.db);
+      return { fields: fields.map((f) => ({ name: f.name, label: f.label, type: f.type, options: f.options })) };
+    },
+  }),
+
+  defineTool({
+    name: "set_product_schema",
+    description:
+      "Declaratively replace the shared product field set. Diffs by field name → { added, updated, removed }. " +
+      "Removing a field or changing its type discards that value across all products, so those need allowDestructive:true.",
+    schema: z.object({
+      fields: z.array(fieldInput).describe("The complete desired field list (order matters)."),
+      allowDestructive: z.boolean().optional().describe("Required to remove fields or change a field's type."),
+    }),
+    handler: async (ctx, args) => {
+      return setProductFields(ctx.db, { fields: toFieldInputs(args.fields), allowDestructive: args.allowDestructive });
     },
   }),
 ];

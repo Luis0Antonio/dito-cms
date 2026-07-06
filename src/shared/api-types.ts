@@ -45,6 +45,12 @@ export interface ProjectSettings {
    * (`data:image/…;base64,…`) or an `http(s)` URL. Null when no logo has been set.
    */
   logo: string | null;
+  /**
+   * Whether the optional Store (commerce) module is enabled. OFF by default. Gates the
+   * store admin routes, MCP store tools and the SPA store nav/routes. Content-only
+   * instances leave this off and are entirely unaffected.
+   */
+  commerceEnabled: boolean;
 }
 
 // --- Deploy hook -------------------------------------------------------------
@@ -419,4 +425,108 @@ export interface ImportResult {
   renamed: { from: string; to: string }[];
   overwritten: string[];
   skipped: string[];
+}
+
+// --- Commerce: catalog (Store module, Phase 1) ------------------------------
+// All of these are gated behind the `commerceEnabled` setting. Money (`priceAmount`)
+// is an integer in the store's minor currency units.
+
+export type ProductStatus = "draft" | "active" | "archived";
+
+/** A product category. `parentId` allows a shallow tree. */
+export interface CategoryDTO {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  parentId: string | null;
+  sortOrder: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** A category in the list view, with how many products reference it. */
+export interface CategorySummary extends CategoryDTO {
+  productCount: number;
+}
+
+/** A product as shown in the admin list (compact, with a thumbnail + category name). */
+export interface ProductSummary {
+  id: string;
+  slug: string;
+  name: string;
+  status: ProductStatus;
+  priceAmount: number;
+  sku: string | null;
+  stock: number | null;
+  categoryId: string | null;
+  categoryName: string | null;
+  /** First gallery image, expanded for the list thumbnail; null if none. */
+  image: MediaDTO | null;
+  sortOrder: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** A single product with its custom-field values and ordered image gallery. */
+export interface ProductDetail {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  status: ProductStatus;
+  priceAmount: number;
+  sku: string | null;
+  stock: number | null;
+  categoryId: string | null;
+  /** Custom-field values keyed by product field name. */
+  customData: EntryData;
+  /** Ordered gallery, expanded to media DTOs. */
+  images: MediaDTO[];
+  sortOrder: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ProductListResult {
+  products: ProductSummary[];
+  total: number;
+}
+
+export interface ListProductsParams {
+  status?: ProductStatus;
+  search?: string;
+  categoryId?: string;
+  limit?: number;
+  offset?: number;
+}
+
+// --- Commerce: public catalog (delivery, read-only) -------------------------
+
+/** A published (active) product as served by the public catalog API. */
+export interface CatalogProduct {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  priceAmount: number;
+  sku: string | null;
+  stock: number | null;
+  category: { slug: string; name: string } | null;
+  /** Ordered images with absolute URLs. */
+  images: DeliveryMedia[];
+  /** Custom-field values keyed by product field name. */
+  data: EntryData;
+}
+
+export interface CatalogCategory {
+  slug: string;
+  name: string;
+  description: string | null;
+  parentSlug: string | null;
+}
+
+export interface CatalogListResponse {
+  data: CatalogProduct[];
+  meta: { total: number; limit: number; offset: number };
 }

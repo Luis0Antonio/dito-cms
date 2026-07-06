@@ -16,6 +16,23 @@ export async function setSetting(db: DrizzleDb, key: string, value: string): Pro
     .onConflictDoUpdate({ target: settings.key, set: { value, updatedAt: now } });
 }
 
+// --- Commerce module toggle --------------------------------------------------
+// The whole optional Store module is gated by a single boolean stored under this key.
+// OFF by default so content-only instances are entirely unaffected. Worker routes, MCP
+// store tools and the SPA nav all consult this flag.
+
+export const COMMERCE_ENABLED_KEY = "commerce_enabled";
+
+/** Whether the optional commerce (Store) module is enabled. Defaults to false. */
+export async function isCommerceEnabled(db: DrizzleDb): Promise<boolean> {
+  return (await getSetting(db, COMMERCE_ENABLED_KEY)) === "true";
+}
+
+/** Enable or disable the commerce module. */
+export async function setCommerceEnabled(db: DrizzleDb, enabled: boolean): Promise<void> {
+  await setSetting(db, COMMERCE_ENABLED_KEY, enabled ? "true" : "false");
+}
+
 function generateSecret(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);

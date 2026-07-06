@@ -1,4 +1,14 @@
-import { sqliteTable, text, integer, real, check, index, uniqueIndex } from "drizzle-orm/sqlite-core";
+import {
+  sqliteTable,
+  text,
+  integer,
+  real,
+  check,
+  index,
+  uniqueIndex,
+  primaryKey,
+  type AnySQLiteColumn,
+} from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 
 import { user } from "./auth-schema";
@@ -201,3 +211,137 @@ export const deployHookDeliveries = sqliteTable(
 );
 
 export type DeployHookDeliveryRow = typeof deployHookDeliveries.$inferSelect;
+
+// =============================================================================
+// Commerce (optional Store module) — Phase 1: catalog.
+// Gated entirely by the `commerce_enabled` setting; content-only instances never
+// touch these tables. Unlike content (collections + JSON entries), commerce uses
+// solid relational columns. Money is an INTEGER in minor units; the store currency
+// lives in settings. The model leaves room for variants (a later phase).
+// =============================================================================
+
+/**
+ * A product category. Self-referential `parentId` allows a shallow tree (a parent
+ * delete nulls children's parent, never cascades them away). `slug` is unique and
+ * used in catalog URLs.
+ */
+export const categories = sqliteTable(
+  "categories",
+  {
+    id: text("id").primaryKey(),
+    slug: text("slug").notNull(),
+    name: text("name").notNull(),
+    description: text("description"),
+    parentId: text("parent_id").references((): AnySQLiteColumn => categories.id, {
+      onDelete: "set null",
+    }),
+    sortOrder: real("sort_order").notNull().default(0),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("categories_slug_unq").on(t.slug),
+    index("categories_parent_idx").on(t.parentId),
+    index("categories_sort_idx").on(t.sortOrder),
+  ],
+);
+
+export type CategoryRow = typeof categories.$inferSelect;
+
+/**
+ * The shared product schema: one set of custom fields applied to ALL products (no
+ * per-type schemas). Mirrors the `fields` table but with no collectionId — `name`
+ * is globally unique. Product `customData` is validated against these via the same
+ * field system used for entry content.
+ */
+export const productFields = sqliteTable(
+  "product_fields",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    label: text("label").notNull(),
+    type: text("type", {
+      enum: ["text", "rich_text", "number", "boolean", "picture", "video", "link"],
+    }).notNull(),
+    options: text("options").notNull().default("{}"),
+    sortOrder: real("sort_order").notNull().default(0),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("product_fields_name_unq").on(t.name),
+    index("product_fields_sort_idx").on(t.sortOrder),
+    check(
+      "product_fields_type_chk",
+      sql`${t.type} in ('text', 'rich_text', 'number', 'boolean', 'picture', 'video', 'link')`,
+    ),
+  ],
+);
+
+export type ProductFieldRow = typeof productFields.$inferSelect;
+
+/**
+ * A simple product: solid core columns plus a shared custom-field layer (`customData`,
+ * validated against `product_fields`). `priceAmount` is an integer in the store's
+ * minor currency units. `sku` is optional but unique when present. `stock` null means
+ * stock is untracked. `status` drives delivery: only `active` products are served by
+ * the public catalog. One SKU/price/stock per product for now; variants come later.
+ */
+export const products = sqliteTable(
+  "products",
+  {
+    id: text("id").primaryKey(),
+    slug: text("slug").notNull(),
+    name: text("name").notNull(),
+    description: text("description"),
+    status: text("status", { enum: ["draft", "active", "archived"] })
+      .notNull()
+      .default("draft"),
+    /** Price in minor currency units (e.g. cents). Integer to avoid float drift. */
+    priceAmount: integer("price_amount").notNull().default(0),
+    sku: text("sku"),
+    /** Units in stock; null = untracked (always available). */
+    stock: integer("stock"),
+    categoryId: text("category_id").references(() => categories.id, { onDelete: "set null" }),
+    /** Custom-field values keyed by product_fields.name. JSON `{}` when none. */
+    customData: text("custom_data").notNull().default("{}"),
+    sortOrder: real("sort_order").notNull().default(0),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
+    updatedBy: text("updated_by").references(() => user.id, { onDelete: "set null" }),
+  },
+  (t) => [
+    uniqueIndex("products_slug_unq").on(t.slug),
+    uniqueIndex("products_sku_unq").on(t.sku).where(sql`${t.sku} IS NOT NULL`),
+    index("products_status_sort_idx").on(t.status, t.sortOrder),
+    index("products_category_idx").on(t.categoryId),
+    check("products_status_chk", sql`${t.status} in ('draft', 'active', 'archived')`),
+  ],
+);
+
+export type ProductRow = typeof products.$inferSelect;
+
+/**
+ * Ordered image gallery for a product, reusing the `media` table. Composite key
+ * (productId, mediaId) prevents the same asset being attached twice. Both sides
+ * cascade: deleting a product or the underlying media drops the link.
+ */
+export const productImages = sqliteTable(
+  "product_images",
+  {
+    productId: text("product_id")
+      .notNull()
+      .references(() => products.id, { onDelete: "cascade" }),
+    mediaId: text("media_id")
+      .notNull()
+      .references(() => media.id, { onDelete: "cascade" }),
+    sortOrder: real("sort_order").notNull().default(0),
+  },
+  (t) => [
+    primaryKey({ columns: [t.productId, t.mediaId] }),
+    index("product_images_product_sort_idx").on(t.productId, t.sortOrder),
+  ],
+);
+
+export type ProductImageRow = typeof productImages.$inferSelect;
