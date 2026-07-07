@@ -125,6 +125,73 @@ export interface DeployHookActivity {
   deliveries: DeployHookDelivery[];
 }
 
+// --- Store settings (commerce module) ---------------------------------------
+// All store settings live behind the `commerce_enabled` gate at the route/MCP level. These
+// DTOs are the REDACTED, admin-facing shapes: payment/webhook secrets are write-only and
+// never travel back to the browser — only whether they are configured is reported.
+
+/**
+ * Redacted Culqi gateway config for admin GET/PATCH. The public key is safe to show; the
+ * secret key is write-only — the browser only learns whether one is stored (`secretKeyConfigured`).
+ */
+export interface CulqiSettings {
+  /** Whether Culqi is enabled as the checkout gateway. */
+  enabled: boolean;
+  /** The Culqi publishable key (`pk_test_…` / `pk_live_…`), safe to display; empty when unset. */
+  publicKey: string;
+  /** True once a Culqi secret key has been stored (encrypted at rest). The value is never returned. */
+  secretKeyConfigured: boolean;
+}
+
+/**
+ * PATCH body for the Culqi config. PATCH semantics mirror the deploy hook: an omitted field is
+ * left unchanged (so `enabled` can toggle without resending the secret key). `secretKey` is
+ * write-only — send it only to set a new value; an empty-string value clears it.
+ */
+export interface UpdateCulqiInput {
+  enabled?: boolean;
+  publicKey?: string;
+  secretKey?: string;
+}
+
+/**
+ * Redacted order-hook view for admin GET/PATCH. Same shape/semantics as the deploy hook's
+ * config (single URL + optional auth header), minus the delivery-log fields — firing and its
+ * activity log land in a later phase. The URL and auth header value are treated as secrets and
+ * never returned; only a masked URL preview and the (safe) header name are exposed.
+ */
+export interface OrderHookSettings {
+  /** Whether the hook fires automatically when an order is paid. */
+  enabled: boolean;
+  /** True once a hook URL has been stored. */
+  configured: boolean;
+  /** Masked preview of the stored URL (`scheme://host/…/<last4>`); empty when not configured. */
+  urlPreview: string;
+  /** True when a complete optional auth header (name + value) is stored. */
+  hasAuthHeader: boolean;
+  /** The auth header name (safe to show); the value is never returned. */
+  authHeaderName: string | null;
+}
+
+/**
+ * PATCH body for the order hook. PATCH semantics as the deploy hook: an omitted field is left
+ * unchanged; an empty-string `url` clears the whole config; `authHeaderValue` is write-only.
+ */
+export interface UpdateOrderHookInput {
+  url?: string;
+  enabled?: boolean;
+  authHeaderName?: string | null;
+  authHeaderValue?: string | null;
+}
+
+/** The full redacted store-settings bundle returned by the admin store-settings endpoint. */
+export interface StoreSettings {
+  /** ISO 4217 currency code used for new orders (default `PEN`). */
+  currency: string;
+  culqi: CulqiSettings;
+  orderHook: OrderHookSettings;
+}
+
 // --- Collections & fields (Phase 2) -----------------------------------------
 
 export type CollectionType = "collection" | "singleton";

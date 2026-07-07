@@ -136,6 +136,16 @@ existing files; each object keeps serving from the backend it was uploaded to. C
 size is governed by your Cloudinary plan (lower `MAX_CLOUDINARY_VIDEO_BYTES` in
 `src/shared/constants.ts` to cap video below the 2 GB default).
 
+### Store secret encryption (commerce module)
+
+Optional, and only relevant when the commerce module is enabled and you configure payments.
+Payment-provider secrets (the Culqi secret key) and the order-hook auth header are stored
+**encrypted** (AES-256-GCM) in the D1 `settings` table, keyed by `SETTINGS_ENC_KEY` — a 32-byte
+key, standard-base64-encoded. Generate one with `openssl rand -base64 32`. For a deployed Worker:
+`wrangler secret put SETTINGS_ENC_KEY`; for local dev, add it to `.dev.vars`. It is required only
+when saving or using those secrets — content-only and catalog-only instances never need it, and
+the Worker never touches the key at boot.
+
 ## Content model & authoring
 
 Define **collections** (many entries) and **singletons** (exactly one entry) in the schema
