@@ -345,3 +345,233 @@ export const productImages = sqliteTable(
 );
 
 export type ProductImageRow = typeof productImages.$inferSelect;
+
+// =============================================================================
+// Commerce (optional Store module) — Phase 2: orders, payments, checkout.
+// Still gated by `commerce_enabled`. Orders are immutable financial records:
+// prices, names and images are SNAPSHOTTED onto order_items at purchase time so
+// they survive product/media edits and deletions. Money stays an INTEGER in the
+// store's minor currency units. Buyer-facing status is served live; a sale
+// changes what the catalog API answers, never triggers a deploy/rebuild.
+// =============================================================================
+
+/**
+ * A placed order — an immutable financial record once created. `number` is a
+ * human-facing sequential id allocated from `counters` (first order is #1);
+ * `accessToken` is a nanoid(24) unguessable secret the buyer uses to read their
+ * order status without auth (`GET /orders/:id?token=`). `status` walks:
+ *   pending → awaiting_payment → paid → fulfilled
+ * with `cancelled`/`failed`/`refunded` as terminal off-ramps. `failed` is terminal
+ * — a buyer retry is a brand-new checkout (an unpaid order holds no stock).
+ * `shippingAddress` is nullable JSON. All amounts are integer minor units and are
+ * priced server-side from the DB, never from the client. `stockConflict` (bool as
+ * 0/1) flags a paid order whose stock decrement could not be applied — money moved
+ * but inventory went negative, so the merchant must resolve it manually.
+ * `idempotencyKey` is a hash(key + email + payload) that dedupes replayed
+ * checkouts; unique only when present (a bare key can never map to another buyer's
+ * order). `paidAt`/`fulfilledAt`/`cancelledAt` stamp the terminal transitions.
+ */
+export const orders = sqliteTable(
+  "orders",
+  {
+    id: text("id").primaryKey(),
+    /** Sequential human-facing order number, allocated from `counters`. First is 1. */
+    number: integer("number").notNull(),
+    /** Unguessable nanoid(24) secret for the public status endpoint; not auth. */
+    accessToken: text("access_token").notNull(),
+    status: text("status", {
+      enum: [
+        "pending",
+        "awaiting_payment",
+        "paid",
+        "fulfilled",
+        "cancelled",
+        "failed",
+        "refunded",
+      ],
+    })
+      .notNull()
+      .default("pending"),
+    email: text("email").notNull(),
+    customerName: text("customer_name"),
+    customerPhone: text("customer_phone"),
+    /** Shipping address as JSON; nullable (digital goods / pickup). */
+    shippingAddress: text("shipping_address"),
+    note: text("note"),
+    /** ISO currency code, snapshotted from settings at checkout time. */
+    currency: text("currency").notNull(),
+    /** Sum of item totals, minor units. */
+    subtotalAmount: integer("subtotal_amount").notNull(),
+    /** Shipping cost, minor units. */
+    shippingAmount: integer("shipping_amount").notNull().default(0),
+    /** subtotal + shipping, minor units. */
+    totalAmount: integer("total_amount").notNull(),
+    /** Bool as 0/1: paid order whose stock decrement failed — merchant resolves. */
+    stockConflict: integer("stock_conflict").notNull().default(0),
+    /** hash(idempotency-key + email + payload); unique when present, dedupes replays. */
+    idempotencyKey: text("idempotency_key"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    paidAt: integer("paid_at"),
+    fulfilledAt: integer("fulfilled_at"),
+    cancelledAt: integer("cancelled_at"),
+  },
+  (t) => [
+    uniqueIndex("orders_number_unq").on(t.number),
+    uniqueIndex("orders_idempotency_key_unq")
+      .on(t.idempotencyKey)
+      .where(sql`${t.idempotencyKey} IS NOT NULL`),
+    index("orders_status_created_idx").on(t.status, t.createdAt),
+    index("orders_email_idx").on(t.email),
+    index("orders_created_idx").on(t.createdAt),
+    check(
+      "orders_status_chk",
+      sql`${t.status} in ('pending', 'awaiting_payment', 'paid', 'fulfilled', 'cancelled', 'failed', 'refunded')`,
+    ),
+  ],
+);
+
+export type OrderRow = typeof orders.$inferSelect;
+
+/**
+ * A single line on an order — a full price/name/image SNAPSHOT taken at checkout,
+ * intentionally decoupled from the live product. `productId` references `products`
+ * with SET NULL (not cascade): deleting a product must NOT erase historical order
+ * lines. `orderId` cascades — deleting an order drops its items. `name`, `sku` and
+ * `unitAmount` are frozen copies (`unitAmount` = per-unit price in minor units at
+ * purchase time). `quantity` is > 0. `totalAmount` = unitAmount × quantity.
+ * `imageMediaId` references `media` with SET NULL so the snapshot survives media
+ * deletion (deliberately different from product_images, which cascades).
+ */
+export const orderItems = sqliteTable(
+  "order_items",
+  {
+    id: text("id").primaryKey(),
+    orderId: text("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    /** Nullable: product may be deleted after purchase; the snapshot below survives. */
+    productId: text("product_id").references(() => products.id, { onDelete: "set null" }),
+    /** Snapshot of product name at purchase time. */
+    name: text("name").notNull(),
+    /** Snapshot of product SKU at purchase time; nullable. */
+    sku: text("sku"),
+    /** Snapshot of per-unit price in minor units at purchase time. */
+    unitAmount: integer("unit_amount").notNull(),
+    quantity: integer("quantity").notNull(),
+    /** unitAmount × quantity, minor units. */
+    totalAmount: integer("total_amount").notNull(),
+    /** Snapshot image; SET NULL on media delete so the line survives (unlike product_images). */
+    imageMediaId: text("image_media_id").references(() => media.id, { onDelete: "set null" }),
+  },
+  (t) => [
+    index("order_items_order_idx").on(t.orderId),
+    check("order_items_quantity_chk", sql`${t.quantity} > 0`),
+  ],
+);
+
+export type OrderItemRow = typeof orderItems.$inferSelect;
+
+/**
+ * A payment attempt against an order. A `created` intent row is written BEFORE the
+ * gateway call so a crash between charge success and the paid transition is
+ * webhook-recoverable via the provider's charge id. `provider` is the driver name
+ * (e.g. `culqi`); `providerRef` is the gateway charge id, nullable until the charge
+ * exists. `status` walks created → paid | failed | refunded. `raw` is the redacted
+ * gateway response JSON (never store card data or secrets). `orderId` cascades with
+ * the order. The partial unique on (provider, providerRef) makes a given gateway
+ * charge idempotent here while allowing many `created` intents with no ref yet.
+ */
+export const payments = sqliteTable(
+  "payments",
+  {
+    id: text("id").primaryKey(),
+    orderId: text("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    /** Payment driver name, e.g. `culqi`. */
+    provider: text("provider").notNull(),
+    /** Gateway charge id; null until the charge is created. */
+    providerRef: text("provider_ref"),
+    status: text("status", { enum: ["created", "paid", "failed", "refunded"] }).notNull(),
+    /** Charged amount in minor units. */
+    amount: integer("amount").notNull(),
+    currency: text("currency").notNull(),
+    errorCode: text("error_code"),
+    errorMessage: text("error_message"),
+    /** Redacted gateway response JSON; never secrets or card data. Nullable. */
+    raw: text("raw"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("payments_provider_ref_unq")
+      .on(t.provider, t.providerRef)
+      .where(sql`${t.providerRef} IS NOT NULL`),
+    index("payments_order_idx").on(t.orderId),
+    check(
+      "payments_status_chk",
+      sql`${t.status} in ('created', 'paid', 'failed', 'refunded')`,
+    ),
+  ],
+);
+
+export type PaymentRow = typeof payments.$inferSelect;
+
+/**
+ * A raw inbound webhook event from a payment provider, stored for idempotency and
+ * audit. Providers have no webhook signatures (Culqi confirmed) so events are
+ * untrusted hints: the driver re-fetches the charge before acting. The unique
+ * (provider, eventId) makes redelivery a no-op (insert-or-ignore → exactly one
+ * transition). `orderId` is deliberately a plain nullable text column with NO FK
+ * constraint: a real charge whose order we don't recognise is still recorded (with
+ * null orderId) and surfaced for merchant review rather than rejected. `payload` is
+ * the received event JSON; `processedAt` stamps when we handled it.
+ */
+export const paymentEvents = sqliteTable(
+  "payment_events",
+  {
+    id: text("id").primaryKey(),
+    provider: text("provider").notNull(),
+    /** Provider's event id; unique per provider for webhook dedupe. */
+    eventId: text("event_id").notNull(),
+    type: text("type").notNull(),
+    /** Nullable, intentionally NO FK: unknown-order events are kept for review. */
+    orderId: text("order_id"),
+    /** Received event JSON. */
+    payload: text("payload"),
+    processedAt: integer("processed_at").notNull(),
+  },
+  (t) => [uniqueIndex("payment_events_provider_event_unq").on(t.provider, t.eventId)],
+);
+
+export type PaymentEventRow = typeof paymentEvents.$inferSelect;
+
+/**
+ * Named monotonic counters. v1 use: `order_number`, seeded to 0 by the migration so
+ * the first allocation yields #1. Allocation is atomic in a later phase via
+ * `UPDATE counters SET value = value + 1 WHERE name = ? RETURNING value` (D1
+ * supports RETURNING).
+ */
+export const counters = sqliteTable("counters", {
+  name: text("name").primaryKey(),
+  value: integer("value").notNull(),
+});
+
+export type CounterRow = typeof counters.$inferSelect;
+
+/**
+ * D1-based fixed-window rate limiting for the public checkout route (no KV/DO in
+ * this deployment). `key` is an ip+window bucket; `count` is the hits so far in the
+ * window; `expiresAt` is the window end (epoch ms). Rows are cleaned up
+ * opportunistically on write.
+ */
+export const checkoutHits = sqliteTable("checkout_hits", {
+  /** Bucket key: client ip + time window. */
+  key: text("key").primaryKey(),
+  count: integer("count").notNull(),
+  /** Window expiry, epoch ms; expired rows are swept on write. */
+  expiresAt: integer("expires_at").notNull(),
+});
+
+export type CheckoutHitRow = typeof checkoutHits.$inferSelect;
