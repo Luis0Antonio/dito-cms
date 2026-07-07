@@ -257,7 +257,7 @@ export async function setOrderHookConfig(
 }
 
 /** Mask a stored URL to `scheme://host/…/<last4>` — enough to recognize it, not to use it. */
-function maskUrl(url: string): string {
+export function maskUrl(url: string): string {
   try {
     const parsed = new URL(url);
     return `${parsed.protocol}//${parsed.host}/…/${url.slice(-4)}`;

@@ -575,3 +575,31 @@ export const checkoutHits = sqliteTable("checkout_hits", {
 });
 
 export type CheckoutHitRow = typeof checkoutHits.$inferSelect;
+
+/**
+ * Activity log for the ORDER hook (merchant order-paid notifications) — a column-for-column
+ * mirror of `deploy_hook_deliveries`: one row per actual HTTP delivery attempt, masked URL
+ * only, pruned to the most recent rows on insert (services/store/order-hook.ts). Kept as a
+ * separate table (not shared with the deploy log) because the two hooks are unrelated
+ * systems: rebuild triggers vs. commerce notifications, gated and configured independently.
+ */
+export const orderHookDeliveries = sqliteTable(
+  "order_hook_deliveries",
+  {
+    id: text("id").primaryKey(),
+    firedAt: integer("fired_at").notNull(),
+    /** Trigger event: `order.paid` (or `test` from the settings page, phase 2F). */
+    event: text("event").notNull(),
+    /** Optional human reference — the order number, e.g. `#42`. */
+    detail: text("detail"),
+    /** Masked hook URL (`scheme://host/…/<last4>`); never the raw URL. */
+    url: text("url").notNull(),
+    ok: integer("ok", { mode: "boolean" }).notNull(),
+    /** HTTP status of the response, or null on a network error / timeout. */
+    status: integer("status"),
+    error: text("error"),
+  },
+  (t) => [index("order_hook_deliveries_fired_idx").on(t.firedAt)],
+);
+
+export type OrderHookDeliveryRow = typeof orderHookDeliveries.$inferSelect;

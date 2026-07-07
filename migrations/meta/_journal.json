@@ -57,6 +57,13 @@
       "when": 1783399912103,
       "tag": "0007_brown_venus",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1783403239327,
+      "tag": "0008_remarkable_iron_patriot",
+      "breakpoints": true
     }
   ]
 }
