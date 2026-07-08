@@ -43,6 +43,13 @@
       "when": 1781674979249,
       "tag": "0005_abandoned_pepper_potts",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1783461381730,
+      "tag": "0006_lumpy_shatterstar",
+      "breakpoints": true
     }
   ]
 }

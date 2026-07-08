@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 
 import type { AppEnv } from "../lib/app";
+import { badRequest, payloadTooLarge } from "../lib/errors";
+import { submitContactForm } from "../services/contact-forms";
 import {
   getContentItem,
   getPublicSchema,
@@ -21,7 +23,7 @@ const CACHE_CONTROL = "public, max-age=60, stale-while-revalidate=300";
 
 deliveryRouter.use(
   "*",
-  cors({ origin: "*", allowMethods: ["GET", "HEAD", "OPTIONS"], maxAge: 86400 }),
+  cors({ origin: "*", allowMethods: ["GET", "HEAD", "POST", "OPTIONS"], maxAge: 86400 }),
 );
 
 /** True when the client's If-None-Match covers our ETag (honor `*` and comma lists). */
@@ -89,4 +91,32 @@ deliveryRouter.get("/content/:slug/:idOrSlug", async (c) => {
   c.header("Cache-Control", CACHE_CONTROL);
   if (notModified(c.req.header("If-None-Match"), etag)) return c.body(null, 304);
   return c.json({ data });
+});
+
+// Public write-only contact form endpoint. The public key is intended for frontend code;
+// server-side validation strips unknown fields and rate-limits by form + hashed client IP.
+deliveryRouter.post("/contact-forms/:publicKey/submissions", async (c) => {
+  const contentLength = Number(c.req.header("content-length"));
+  if (Number.isFinite(contentLength) && contentLength > 64 * 1024) {
+    throw payloadTooLarge("Submission is too large");
+  }
+  const body = (await c.req.json().catch(() => undefined)) as unknown;
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    throw badRequest("Submission body must be a JSON object");
+  }
+  const record = body as Record<string, unknown>;
+  const rawData =
+    typeof record.data === "object" && record.data !== null && !Array.isArray(record.data)
+      ? (record.data as Record<string, unknown>)
+      : record;
+  const forwarded = c.req.header("x-forwarded-for")?.split(",")[0]?.trim();
+  const clientIp = c.req.header("cf-connecting-ip") ?? forwarded ?? "unknown";
+  const result = await submitContactForm(
+    c.get("db"),
+    c.req.param("publicKey"),
+    rawData,
+    clientIp,
+    c.req.header("user-agent") ?? null,
+  );
+  return c.json({ ok: true, submissionId: result.submissionId }, 201);
 });

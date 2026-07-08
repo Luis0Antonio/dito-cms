@@ -35,6 +35,8 @@ export const notFound = (message = "Not found"): ApiError =>
   new ApiError(404, "not_found", message);
 export const conflict = (message: string, fieldErrors?: Record<string, string>): ApiError =>
   new ApiError(409, "conflict", message, fieldErrors);
+export const rateLimited = (message = "Too many requests"): ApiError =>
+  new ApiError(429, "rate_limited", message);
 export const payloadTooLarge = (message: string): ApiError =>
   new ApiError(413, "payload_too_large", message);
 export const unsupportedMediaType = (message: string): ApiError =>

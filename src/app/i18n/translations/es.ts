@@ -1,6 +1,7 @@
 export const es = {
   // Navigation
   "nav.collections": "Colecciones",
+  "nav.contactForms": "Formularios",
   "nav.media": "Multimedia",
   "nav.settings": "Configuración",
 
