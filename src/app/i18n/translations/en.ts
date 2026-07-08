@@ -3,6 +3,7 @@ import type { TranslationKey } from "./es";
 export const en: Record<TranslationKey, string> = {
   // Navigation
   "nav.collections": "Collections",
+  "nav.contactForms": "Forms",
   "nav.media": "Media",
   "nav.settings": "Settings",
 

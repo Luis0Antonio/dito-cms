@@ -201,3 +201,78 @@ export const deployHookDeliveries = sqliteTable(
 );
 
 export type DeployHookDeliveryRow = typeof deployHookDeliveries.$inferSelect;
+
+// Contact forms expose a public write-only endpoint. `public_key` is safe to embed in
+// frontend code; admin APIs use the internal id. Rate limiting is per form + hashed
+// client IP over a configurable rolling window.
+export const contactForms = sqliteTable(
+  "contact_forms",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    publicKey: text("public_key").notNull(),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    rateLimitMax: integer("rate_limit_max").notNull().default(5),
+    rateLimitWindowSeconds: integer("rate_limit_window_seconds").notNull().default(60),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("contact_forms_public_key_unq").on(t.publicKey),
+    index("contact_forms_created_idx").on(t.createdAt),
+    check("contact_forms_rate_max_chk", sql`${t.rateLimitMax} between 1 and 1000`),
+    check("contact_forms_rate_window_chk", sql`${t.rateLimitWindowSeconds} between 10 and 86400`),
+  ],
+);
+
+export type ContactFormRow = typeof contactForms.$inferSelect;
+
+export const contactFormFields = sqliteTable(
+  "contact_form_fields",
+  {
+    id: text("id").primaryKey(),
+    formId: text("form_id")
+      .notNull()
+      .references(() => contactForms.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    label: text("label").notNull(),
+    type: text("type", {
+      enum: ["text", "email", "textarea", "number", "checkbox", "select"],
+    }).notNull(),
+    required: integer("required", { mode: "boolean" }).notNull().default(false),
+    options: text("options").notNull().default("{}"),
+    sortOrder: real("sort_order").notNull().default(0),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("contact_form_fields_form_name_unq").on(t.formId, t.name),
+    index("contact_form_fields_sort_idx").on(t.formId, t.sortOrder),
+    check(
+      "contact_form_fields_type_chk",
+      sql`${t.type} in ('text', 'email', 'textarea', 'number', 'checkbox', 'select')`,
+    ),
+  ],
+);
+
+export type ContactFormFieldRow = typeof contactFormFields.$inferSelect;
+
+export const contactFormSubmissions = sqliteTable(
+  "contact_form_submissions",
+  {
+    id: text("id").primaryKey(),
+    formId: text("form_id")
+      .notNull()
+      .references(() => contactForms.id, { onDelete: "cascade" }),
+    data: text("data").notNull(),
+    ipHash: text("ip_hash").notNull(),
+    userAgent: text("user_agent"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    index("contact_form_submissions_form_created_idx").on(t.formId, t.createdAt),
+    index("contact_form_submissions_rate_idx").on(t.formId, t.ipHash, t.createdAt),
+  ],
+);
+
+export type ContactFormSubmissionRow = typeof contactFormSubmissions.$inferSelect;

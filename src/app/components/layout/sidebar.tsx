@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { ImageIcon, LayoutGridIcon, type LucideIcon, SettingsIcon } from "lucide-react";
+import { ImageIcon, LayoutGridIcon, MailIcon, type LucideIcon, SettingsIcon } from "lucide-react";
 
 import { UserMenu } from "./user-menu";
 
@@ -12,12 +12,13 @@ import { cn } from "@/app/lib/utils";
 
 interface NavItem {
   to: string;
-  labelKey: "nav.collections" | "nav.media" | "nav.settings";
+  labelKey: "nav.collections" | "nav.contactForms" | "nav.media" | "nav.settings";
   icon: LucideIcon;
 }
 
 const NAV: NavItem[] = [
   { to: "/collections", labelKey: "nav.collections", icon: LayoutGridIcon },
+  { to: "/contact-forms", labelKey: "nav.contactForms", icon: MailIcon },
   { to: "/media", labelKey: "nav.media", icon: ImageIcon },
   { to: "/settings", labelKey: "nav.settings", icon: SettingsIcon },
 ];

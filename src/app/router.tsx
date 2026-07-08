@@ -15,6 +15,7 @@ import { CollectionsListPage } from "./features/collections/collections-list-pag
 import { SchemaBuilderPage } from "./features/collections/builder/schema-builder-page";
 import { CollectionPage } from "./features/entries/collection-page";
 import { NewEntryPage, EditEntryPage } from "./features/entries/entry-editor-page";
+import { ContactFormsPage } from "./features/contact-forms/contact-forms-page";
 import { MediaPage } from "./features/media/media-page";
 import { SettingsLayout } from "./features/settings/settings-layout";
 import { GeneralSettingsPage } from "./features/settings/general-page";
@@ -128,6 +129,13 @@ const mediaRoute = createRoute({
   staticData: { title: "Media" },
 });
 
+const contactFormsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/contact-forms",
+  component: ContactFormsPage,
+  staticData: { title: "Contact forms" },
+});
+
 const settingsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/settings",
@@ -183,6 +191,7 @@ export const routeTree = rootRoute.addChildren([
     collectionSchemaRoute,
     newEntryRoute,
     editEntryRoute,
+    contactFormsRoute,
     mediaRoute,
     settingsRoute.addChildren([
       settingsIndexRoute,
