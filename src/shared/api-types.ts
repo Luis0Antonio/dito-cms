@@ -23,6 +23,8 @@ export type ApiErrorCode =
   | "payload_too_large"
   | "unsupported_media_type"
   | "rate_limited"
+  /** 503 from checkout: a paymentToken was sent but no payment gateway is configured+enabled. */
+  | "payments_unavailable"
   | "internal_error";
 
 /** Health/setup status returned by the public bootstrap endpoints. */
@@ -578,7 +580,13 @@ export interface CatalogProduct {
   description: string | null;
   priceAmount: number;
   sku: string | null;
-  stock: number | null;
+  /**
+   * Derived availability: `stock === null || stock > 0` at response-build time. Raw stock
+   * counts are ADMIN-ONLY — the public catalog never leaks inventory to scrapers. Cached
+   * responses make this a listing-page approximation (sold-out badges); the availability
+   * endpoint ({@link AvailabilityResponse}) is the exact-moment truth.
+   */
+  available: boolean;
   category: { slug: string; name: string } | null;
   /** Ordered images with absolute URLs. */
   images: DeliveryMedia[];
@@ -596,6 +604,18 @@ export interface CatalogCategory {
 export interface CatalogListResponse {
   data: CatalogProduct[];
   meta: { total: number; limit: number; offset: number };
+}
+
+/**
+ * GET /api/commerce/availability?slugs=a,b,c — LIVE availability for up to 50 products,
+ * keyed by requested slug. Always `Cache-Control: no-store`: product pages and cart islands
+ * fetch this at view time, so stock state is never baked into static pages or stale caches
+ * (the cached catalog's `available` flag is the cheap listing approximation). A slug that
+ * doesn't resolve to an `active` product reports `available: false` — unknown, draft and
+ * archived are indistinguishable. Raw stock counts are never exposed.
+ */
+export interface AvailabilityResponse {
+  availability: Record<string, { available: boolean }>;
 }
 
 // --- Commerce: checkout + orders (Store module, Phase 2) --------------------
@@ -728,6 +748,32 @@ export type CheckoutResult =
   | { kind: "paid"; order: CheckoutOrderDTO; transitioned: boolean }
   | { kind: "payment_failed"; order: CheckoutOrderDTO; error: { code: string; message: string } }
   | { kind: "payment_pending"; order: CheckoutOrderDTO };
+
+/**
+ * Wire body of every POST /api/commerce/checkout response that carries an order
+ * (201 pending/paid, 200 replay, 202 payment_pending, 402 payment_failed). `error` is
+ * present on 402 declines and on replays of failed orders — its message is the buyer-safe
+ * text from the payment driver. The paid outcome's route-internal `transitioned` flag is
+ * deliberately NOT part of this shape.
+ */
+export interface CheckoutResponseBody {
+  order: CheckoutOrderDTO;
+  error?: { code: string; message: string };
+}
+
+/**
+ * Wire body of a 400 checkout rejection: the standard error envelope whose `error` also
+ * carries per-line `itemErrors` (unknown_product / insufficient_stock) when line items
+ * were the problem. No order was created.
+ */
+export interface CheckoutValidationErrorBody {
+  error: ApiErrorBody["error"] & { itemErrors?: CheckoutItemError[] };
+}
+
+/** Wire body of GET /api/commerce/orders/:id?token= — the buyer's status view. */
+export interface PublicOrderResponse {
+  order: PublicOrderDTO;
+}
 
 /** A compact order row for the admin orders list. */
 export interface AdminOrderSummary {

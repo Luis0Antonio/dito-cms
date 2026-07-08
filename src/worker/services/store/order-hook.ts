@@ -5,7 +5,7 @@ import { nanoid } from "nanoid";
 import type { DrizzleDb } from "../../db/client";
 import { orderHookDeliveries, orders } from "../../db/schema";
 import type { AppEnv } from "../../lib/app";
-import { getOrderHookConfig, maskUrl } from "./settings";
+import { getOrderHookConfig, maskUrl, type OrderHookRuntimeConfig } from "./settings";
 import { loadOrderItems } from "./orders";
 
 import type {
@@ -34,35 +34,39 @@ const MAX_DELIVERIES = 50;
 const DEFAULT_LIST_LIMIT = 20;
 
 /**
- * Deliver the order.paid notification for one order. No-op (logs nothing) when the hook is
- * disabled/unconfigured or the order does not exist. POSTs the {@link OrderHookPayload} JSON
- * with the optional auth header applied. Logs the attempt — event + order number + masked URL +
- * outcome — to order_hook_deliveries. NEVER throws: a delivery or logging failure must never
- * break (or fail) the checkout/webhook request that triggered it.
+ * Resolve the hook config for a delivery attempt, or the failure result explaining why no
+ * delivery can happen. Config resolution decrypts the auth header value; treat ANY failure
+ * there (e.g. a missing or rotated SETTINGS_ENC_KEY) as "not configured" rather than letting
+ * it escape — there is no URL to log against in that case.
  */
-export async function triggerOrderHook(
+async function resolveEnabledConfig(
   db: DrizzleDb,
   env: Env,
-  orderId: string,
-): Promise<OrderHookTestResult> {
-  // Config resolution decrypts the auth header value; treat ANY failure there (e.g. a missing
-  // or rotated SETTINGS_ENC_KEY) as "not configured" rather than letting it escape — there is
-  // no URL to log against in that case.
-  let config: Awaited<ReturnType<typeof getOrderHookConfig>>;
+): Promise<{ config: OrderHookRuntimeConfig } | { failure: OrderHookTestResult }> {
+  let config: OrderHookRuntimeConfig | null;
   try {
     config = await getOrderHookConfig(db, env);
   } catch {
-    return { ok: false, status: null, error: "Order hook config could not be read" };
+    return { failure: { ok: false, status: null, error: "Order hook config could not be read" } };
   }
   if (!config || !config.enabled || !config.url) {
-    return { ok: false, status: null, error: "Order hook is disabled or has no URL" };
+    return { failure: { ok: false, status: null, error: "Order hook is disabled or has no URL" } };
   }
+  return { config };
+}
 
-  const payload = await buildPayload(db, orderId);
-  if (!payload) {
-    return { ok: false, status: null, error: "Order not found" };
-  }
-
+/**
+ * POST one JSON body to the configured hook URL (optional auth header applied) and log the
+ * attempt — event + detail + masked URL + outcome — to order_hook_deliveries. The shared
+ * delivery core for the order.paid trigger and the admin test. NEVER throws: a delivery or
+ * logging failure must never break (or fail) the request that triggered it.
+ */
+async function deliver(
+  db: DrizzleDb,
+  config: OrderHookRuntimeConfig,
+  body: unknown,
+  log: { event: string; detail: string | null },
+): Promise<OrderHookTestResult> {
   const headers = new Headers({ "Content-Type": "application/json" });
   if (config.authHeaderName && config.authHeaderValue) {
     headers.set(config.authHeaderName, config.authHeaderValue);
@@ -73,7 +77,7 @@ export async function triggerOrderHook(
     const res = await fetch(config.url, {
       method: "POST",
       headers,
-      body: JSON.stringify(payload),
+      body: JSON.stringify(body),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     result = { ok: res.ok, status: res.status };
@@ -84,8 +88,8 @@ export async function triggerOrderHook(
 
   try {
     await recordDelivery(db, {
-      event: payload.event,
-      detail: `#${payload.order.number}`,
+      event: log.event,
+      detail: log.detail,
       // Store only the MASKED URL — the raw URL never lands in the log (as deploy-hook).
       url: maskUrl(config.url),
       result,
@@ -94,6 +98,40 @@ export async function triggerOrderHook(
     // Logging is best-effort; never throw from the trigger path.
   }
   return result;
+}
+
+/**
+ * Deliver the order.paid notification for one order. No-op (logs nothing) when the hook is
+ * disabled/unconfigured or the order does not exist. POSTs the {@link OrderHookPayload} JSON.
+ * NEVER throws (see {@link deliver}).
+ */
+export async function triggerOrderHook(
+  db: DrizzleDb,
+  env: Env,
+  orderId: string,
+): Promise<OrderHookTestResult> {
+  const resolved = await resolveEnabledConfig(db, env);
+  if ("failure" in resolved) return resolved.failure;
+
+  const payload = await buildPayload(db, orderId);
+  if (!payload) {
+    return { ok: false, status: null, error: "Order not found" };
+  }
+  return deliver(db, resolved.config, payload, {
+    event: payload.event,
+    detail: `#${payload.order.number}`,
+  });
+}
+
+/**
+ * The admin "send a test" (POST /api/admin/store/order-hook/test — mirrors the deploy hook's
+ * test endpoint): POSTs a minimal `{event: "test"}` body so the merchant can verify URL +
+ * auth wiring without a real paid order. Logged to the activity table like any delivery.
+ */
+export async function triggerOrderHookTest(db: DrizzleDb, env: Env): Promise<OrderHookTestResult> {
+  const resolved = await resolveEnabledConfig(db, env);
+  if ("failure" in resolved) return resolved.failure;
+  return deliver(db, resolved.config, { event: "test" }, { event: "test", detail: null });
 }
 
 /**

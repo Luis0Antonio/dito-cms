@@ -429,7 +429,10 @@ function mapCatalogProduct(origin: string, row: ProductRow, images: MediaRow[], 
     description: row.description,
     priceAmount: row.priceAmount,
     sku: row.sku,
-    stock: row.stock,
+    // Derived availability ONLY — raw stock counts are admin-only and must never reach the
+    // public catalog (don't leak inventory to scrapers). Exact-moment truth lives at the
+    // live availability endpoint; this cached flag powers listing-page sold-out badges.
+    available: row.stock === null || row.stock > 0,
     category: categorySlug && categoryName ? { slug: categorySlug, name: categoryName } : null,
     images: images.map((m) => toDeliveryMedia(origin, m)),
     data: parseJson(row.customData),

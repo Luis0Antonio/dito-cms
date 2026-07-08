@@ -35,6 +35,12 @@ const SOURCE_TOKEN_RE = /^(tkn|ype|crd)_(test|live)_[A-Za-z0-9]+$/;
 const CHARGE_ID_RE = /^chr_(test|live)_[A-Za-z0-9]+$/;
 /** Event id. */
 const EVENT_ID_RE = /^evt_(test|live)_[A-Za-z0-9]+$/;
+/**
+ * OUR order id, as echoed back in charge `metadata.orderId` (the charge path sends it).
+ * Order ids are default-alphabet `nanoid()` values: exactly 21 chars of [A-Za-z0-9_-].
+ * Anything else in the metadata is NOT ours — leave the event's orderId unset.
+ */
+const ORDER_ID_RE = /^[A-Za-z0-9_-]{21}$/;
 
 /** Culqi `description` bound is 5–80 chars; `Pedido #<n>` is always ≥8, so only the ceiling bites. */
 const DESCRIPTION_MAX = 80;
@@ -62,6 +68,7 @@ interface CulqiChargeLike {
   charge_id?: unknown;
   user_message?: unknown;
   action_code?: unknown;
+  metadata?: unknown;
 }
 
 /**
@@ -294,7 +301,24 @@ async function handleWebhook(
   if (!charge) return null;
 
   const verifiedStatus = deriveVerifiedStatus(charge);
-  return { eventId, type, providerRef: chargeId, verifiedStatus, raw: redactCharge(charge) };
+  // 5. Lift OUR order id from the fetched charge's metadata (sent at charge time). This is the
+  // crash-recovery link for a charge whose payments row never got its providerRef. Only this ONE
+  // validated field is lifted — metadata is deliberately NOT part of the redacted `raw` snapshot.
+  return {
+    eventId,
+    type,
+    providerRef: chargeId,
+    verifiedStatus,
+    orderId: extractMetadataOrderId(charge),
+    raw: redactCharge(charge),
+  };
+}
+
+/** `metadata.orderId` from a fetched charge, iff it is shaped like one of our nanoid order ids. */
+function extractMetadataOrderId(charge: CulqiChargeLike): string | undefined {
+  if (!isObject(charge.metadata)) return undefined;
+  const orderId = charge.metadata.orderId;
+  return typeof orderId === "string" && ORDER_ID_RE.test(orderId) ? orderId : undefined;
 }
 
 /** Coerce a webhook `data` field (JSON string OR object) into an object, or undefined on failure. */

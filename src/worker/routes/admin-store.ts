@@ -2,6 +2,7 @@ import { Hono } from "hono";
 
 import type { AppEnv } from "../lib/app";
 import { badRequest, notFound } from "../lib/errors";
+import { SettingsEncKeyError } from "../lib/crypto";
 import { isCommerceEnabled } from "../services/settings";
 import {
   createProduct,
@@ -20,8 +21,23 @@ import {
   updateCategory,
 } from "../services/store/categories";
 import { getProductFields, setProductFields } from "../services/store/product-schema";
+import { cancelOrder, fulfillOrder, getOrderDetail, listOrders } from "../services/store/orders";
+import {
+  getStoreSettings,
+  setCulqiConfig,
+  setOrderHookConfig,
+  setStoreCurrency,
+} from "../services/store/settings";
+import { listOrderHookDeliveries, triggerOrderHookTest } from "../services/store/order-hook";
 
-import type { EntryData, ProductStatus, SetFieldsInput } from "@/shared/api-types";
+import type {
+  EntryData,
+  OrderStatus,
+  ProductStatus,
+  SetFieldsInput,
+  UpdateCulqiInput,
+  UpdateOrderHookInput,
+} from "@/shared/api-types";
 import type { FieldType, FieldOptions } from "@/shared/field-types";
 
 // Store (commerce) admin API under /api/admin/store/*. Auth is applied by the parent
@@ -209,6 +225,157 @@ schemaRouter.put("/", async (c) => {
   return c.json(result);
 });
 
+// --- orders (phase 2E) ---------------------------------------------------------
+
+const ORDER_STATUSES: readonly OrderStatus[] = [
+  "pending",
+  "awaiting_payment",
+  "paid",
+  "fulfilled",
+  "cancelled",
+  "failed",
+  "refunded",
+];
+
+function asOrderStatus(value: unknown): OrderStatus | undefined {
+  return ORDER_STATUSES.includes(value as OrderStatus) ? (value as OrderStatus) : undefined;
+}
+
+/** Admin list default page size; the service clamps the ceiling to 100. */
+const DEFAULT_ORDERS_LIMIT = 20;
+
+const ordersRouter = new Hono<AppEnv>();
+
+// Newest first. ?status= filters; ?search= matches an exact number (42 / #42) or an email.
+ordersRouter.get("/", async (c) => {
+  const q = c.req.query();
+  const limit = q.limit ? Number(q.limit) : NaN;
+  const offset = q.offset ? Number(q.offset) : NaN;
+  const result = await listOrders(c.get("db"), {
+    status: asOrderStatus(q.status),
+    search: q.search,
+    limit: Number.isFinite(limit) ? limit : DEFAULT_ORDERS_LIMIT,
+    offset: Number.isFinite(offset) ? offset : undefined,
+  });
+  return c.json(result);
+});
+
+ordersRouter.get("/:id", async (c) => {
+  return c.json({ order: await getOrderDetail(c.get("db"), c.req.param("id")) });
+});
+
+// Transitions are guarded in the service: wrong-state attempts throw a 409 conflict (with
+// the current status in the message), unknown ids a 404 — the global handler maps both.
+ordersRouter.post("/:id/fulfill", async (c) => {
+  return c.json({ order: await fulfillOrder(c.get("db"), c.req.param("id")) });
+});
+
+ordersRouter.post("/:id/cancel", async (c) => {
+  return c.json({ order: await cancelOrder(c.get("db"), c.req.param("id")) });
+});
+
+// --- store settings (phase 2E) ---------------------------------------------------
+
+/**
+ * Surface a missing/malformed SETTINGS_ENC_KEY as a 400 whose message tells the operator
+ * exactly how to fix it (generate + set the secret) — a misconfiguration the admin can act
+ * on, not an anonymous 500.
+ */
+async function withEncKeyAsBadRequest<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    if (err instanceof SettingsEncKeyError) throw badRequest(err.message);
+    throw err;
+  }
+}
+
+/** Coerce the `culqi` PATCH fragment; deep validation lives in setCulqiConfig. */
+function readCulqiPatch(raw: unknown): UpdateCulqiInput {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    throw badRequest("`culqi` must be an object");
+  }
+  const src = raw as Record<string, unknown>;
+  const patch: UpdateCulqiInput = {};
+  if ("enabled" in src) {
+    if (typeof src.enabled !== "boolean") throw badRequest("`culqi.enabled` must be a boolean");
+    patch.enabled = src.enabled;
+  }
+  if ("publicKey" in src) {
+    if (typeof src.publicKey !== "string") throw badRequest("`culqi.publicKey` must be a string");
+    patch.publicKey = src.publicKey;
+  }
+  if ("secretKey" in src) {
+    if (typeof src.secretKey !== "string") throw badRequest("`culqi.secretKey` must be a string");
+    patch.secretKey = src.secretKey;
+  }
+  return patch;
+}
+
+/** Coerce the `orderHook` PATCH fragment (mirrors the deploy-hook PATCH coercions). */
+function readOrderHookPatch(raw: unknown): UpdateOrderHookInput {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    throw badRequest("`orderHook` must be an object");
+  }
+  const src = raw as Record<string, unknown>;
+  const patch: UpdateOrderHookInput = {};
+  if ("url" in src) {
+    if (typeof src.url !== "string") throw badRequest("`orderHook.url` must be a string");
+    patch.url = src.url;
+  }
+  if ("enabled" in src) {
+    if (typeof src.enabled !== "boolean") throw badRequest("`orderHook.enabled` must be a boolean");
+    patch.enabled = src.enabled;
+  }
+  if ("authHeaderName" in src) {
+    patch.authHeaderName = typeof src.authHeaderName === "string" ? src.authHeaderName : null;
+  }
+  if ("authHeaderValue" in src) {
+    patch.authHeaderValue = typeof src.authHeaderValue === "string" ? src.authHeaderValue : null;
+  }
+  return patch;
+}
+
+// The full REDACTED settings bundle (currency + Culqi + order hook). Secrets never travel
+// back — reads report only whether a secret is configured.
+storeRouter.get("/settings", async (c) => {
+  return c.json(await getStoreSettings(c.get("db")));
+});
+
+// Partial update: any of {currency, culqi, orderHook}. Each fragment applies through its
+// service (which validates deeply); fragments are independent, applied in order, and an
+// omitted fragment is untouched. Responds with the fresh redacted bundle.
+storeRouter.patch("/settings", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const db = c.get("db");
+
+  if ("currency" in body) {
+    if (typeof body.currency !== "string") throw badRequest("`currency` must be a string");
+    await setStoreCurrency(db, body.currency);
+  }
+  if ("culqi" in body) {
+    const patch = readCulqiPatch(body.culqi);
+    await withEncKeyAsBadRequest(() => setCulqiConfig(db, c.env, patch));
+  }
+  if ("orderHook" in body) {
+    const patch = readOrderHookPatch(body.orderHook);
+    await withEncKeyAsBadRequest(() => setOrderHookConfig(db, c.env, patch));
+  }
+  return c.json(await getStoreSettings(db));
+});
+
+// --- order hook admin surface (mirrors /api/admin/deploy-hook) --------------------
+
+storeRouter.post("/order-hook/test", async (c) => {
+  return c.json(await triggerOrderHookTest(c.get("db"), c.env));
+});
+
+// Recent delivery attempts (the activity log), newest first. Masked URLs only.
+storeRouter.get("/order-hook/deliveries", async (c) => {
+  return c.json(await listOrderHookDeliveries(c.get("db")));
+});
+
 storeRouter.route("/products", productsRouter);
 storeRouter.route("/categories", categoriesRouter);
 storeRouter.route("/product-schema", schemaRouter);
+storeRouter.route("/orders", ordersRouter);

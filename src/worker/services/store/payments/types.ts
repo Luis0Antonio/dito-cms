@@ -84,6 +84,14 @@ export interface VerifiedEvent {
   providerRef: string;
   /** The status DERIVED from the fetched resource, not from the posted payload. */
   verifiedStatus: VerifiedStatus;
+  /**
+   * OUR internal order id, lifted from the FETCHED charge's metadata (the charge path sends
+   * `metadata.orderId`). Only set when the value is plausibly one of our ids — drivers must
+   * validate the shape, never forward arbitrary metadata. This is the crash-recovery link:
+   * when the payments intent row has no providerRef yet (crash between charge success and
+   * the paid transition), 2E's webhook path can still resolve the order through this field.
+   */
+  orderId?: string;
   /** REDACTED snapshot of the fetched resource for audit — scalars only. */
   raw?: unknown;
 }
