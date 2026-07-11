@@ -171,6 +171,11 @@ bun run deploy                    # build → migrate remote → wrangler deploy
   `npx wrangler secret put CLOUDINARY_URL`. Detection is automatic: if the secret is present
   media goes to Cloudinary, otherwise to R2. Verify by uploading an image and checking its URL
   is a `res.cloudinary.com` link (Cloudinary) vs a same-origin `/media/...` path (R2).
+- **Store secret encryption** (only if the commerce module is used with payments): payment
+  secrets (Culqi secret key) and the order-hook auth header are stored encrypted in D1, keyed by
+  `SETTINGS_ENC_KEY` (32 bytes, base64). Set it with `npx wrangler secret put SETTINGS_ENC_KEY`
+  (generate with `openssl rand -base64 32`); for local dev add it to `.dev.vars`. Not needed for
+  content-only or catalog-only instances — the Worker only uses it when saving/reading those secrets.
 - `wrangler.jsonc` now has a real `database_id` (no longer the `000…0` placeholder). That's
   expected for a deployed instance; the user can commit it to their own fork.
 

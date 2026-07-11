@@ -6,6 +6,8 @@ import { requireAuth } from "./middleware/require-auth";
 import { systemRouter } from "./routes/system";
 import { adminRouter } from "./routes/admin";
 import { deliveryRouter } from "./routes/delivery";
+import { commerceRouter } from "./routes/commerce";
+import { commerceWebhookRouter } from "./routes/commerce-webhooks";
 import { mediaServeRouter } from "./routes/media";
 import { handleMcpRequest } from "./mcp/server";
 
@@ -22,6 +24,10 @@ app.all("/api/auth/*", async (c) => {
 app.route("/api", systemRouter);
 app.route("/api/admin", adminRouter);
 app.route("/api/v1", deliveryRouter);
+// Payment-provider webhooks, mounted BEFORE the general commerce router so the storefront
+// CORS middleware never runs for server-to-server webhook traffic.
+app.route("/api/commerce/webhooks", commerceWebhookRouter);
+app.route("/api/commerce", commerceRouter);
 app.route("/media", mediaServeRouter);
 
 // Stateless MCP server. Bearer API key required (requireAuth, on POST only so an

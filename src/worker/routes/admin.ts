@@ -8,6 +8,7 @@ import { deployHookRouter } from "./admin-deploy-hook";
 import { collectionEntriesRouter, entriesRouter } from "./admin-entries";
 import { mediaRouter } from "./admin-media";
 import { settingsRouter } from "./admin-settings";
+import { storeRouter } from "./admin-store";
 
 // Everything under /api/admin/* requires a session cookie or Bearer API key.
 export const adminRouter = new Hono<AppEnv>();
@@ -26,3 +27,4 @@ adminRouter.route("/media", mediaRouter);
 adminRouter.route("/settings", settingsRouter);
 adminRouter.route("/deploy-hook", deployHookRouter);
 adminRouter.route("/backup", backupRouter);
+adminRouter.route("/store", storeRouter);

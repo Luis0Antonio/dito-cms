@@ -5,7 +5,8 @@ import { CfWorkerJsonSchemaValidator } from "@modelcontextprotocol/sdk/validatio
 import { StreamableHTTPTransport } from "@hono/mcp";
 
 import type { AppEnv } from "../lib/app";
-import { TOOLS, type ToolContext } from "./tools";
+import { TOOLS, STORE_TOOLS, type ToolContext, type ToolDef } from "./tools";
+import { isCommerceEnabled } from "../services/settings";
 
 import { APP_VERSION } from "@/shared/constants";
 
@@ -28,12 +29,17 @@ export async function handleMcpRequest(c: Context<AppEnv>): Promise<Response> {
     { capabilities: { tools: {} }, jsonSchemaValidator: new CfWorkerJsonSchemaValidator() },
   );
 
-  server.setRequestHandler(ListToolsRequestSchema, () => ({
-    tools: TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema })),
+  // The store tools are only exposed (and callable) while the commerce module is enabled.
+  // The always-on set_store_enabled lives in TOOLS, so the module can still be toggled on.
+  const activeTools = async (): Promise<ToolDef[]> =>
+    (await isCommerceEnabled(ctx.db)) ? [...TOOLS, ...STORE_TOOLS] : TOOLS;
+
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: (await activeTools()).map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema })),
   }));
 
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
-    const tool = TOOLS.find((t) => t.name === req.params.name);
+    const tool = (await activeTools()).find((t) => t.name === req.params.name);
     if (!tool) {
       return { content: [{ type: "text", text: `Unknown tool "${req.params.name}"` }], isError: true };
     }

@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { ImageIcon, LayoutGridIcon, type LucideIcon, SettingsIcon } from "lucide-react";
+import { ImageIcon, LayoutGridIcon, type LucideIcon, SettingsIcon, ShoppingBagIcon } from "lucide-react";
 
 import { UserMenu } from "./user-menu";
 
@@ -12,20 +12,24 @@ import { cn } from "@/app/lib/utils";
 
 interface NavItem {
   to: string;
-  labelKey: "nav.collections" | "nav.media" | "nav.settings";
+  labelKey: "nav.collections" | "nav.media" | "nav.store" | "nav.settings";
   icon: LucideIcon;
 }
-
-const NAV: NavItem[] = [
-  { to: "/collections", labelKey: "nav.collections", icon: LayoutGridIcon },
-  { to: "/media", labelKey: "nav.media", icon: ImageIcon },
-  { to: "/settings", labelKey: "nav.settings", icon: SettingsIcon },
-];
 
 export function Sidebar(): React.ReactElement {
   const { t } = useI18n();
   const { data: settings } = useQuery(projectSettingsQueryOptions);
   const projectName = settings?.projectName ?? APP_NAME;
+
+  // The Store nav is only shown when the commerce module is enabled.
+  const nav: NavItem[] = [
+    { to: "/collections", labelKey: "nav.collections", icon: LayoutGridIcon },
+    { to: "/media", labelKey: "nav.media", icon: ImageIcon },
+    ...(settings?.commerceEnabled
+      ? [{ to: "/store", labelKey: "nav.store", icon: ShoppingBagIcon } as const]
+      : []),
+    { to: "/settings", labelKey: "nav.settings", icon: SettingsIcon },
+  ];
   return (
     <aside className="sticky top-0 flex h-dvh w-60 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
       <div className="flex h-14 items-center gap-2 px-4">
@@ -37,7 +41,7 @@ export function Sidebar(): React.ReactElement {
         <span className="truncate text-sm font-semibold">{projectName}</span>
       </div>
       <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-2">
-        {NAV.map((item) => (
+        {nav.map((item) => (
           <Link
             key={item.to}
             to={item.to}

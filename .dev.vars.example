@@ -17,3 +17,14 @@ BETTER_AUTH_SECRET=
 # `CLOUDINARY_URL=`). For a deployed Worker set it as a secret instead:
 #   wrangler secret put CLOUDINARY_URL
 CLOUDINARY_URL=
+
+# Store secret-encryption key. OPTIONAL — needed only for the commerce module.
+#
+# Encrypts payment-provider secrets (the Culqi secret key) and the order-hook auth header
+# at rest in the D1 `settings` table. Content-only and catalog-only instances never need it;
+# it is required only once you configure a payment gateway or an order-hook credential. Must be
+# 32 random bytes, standard-base64-encoded. For a deployed Worker set it as a secret instead:
+#   wrangler secret put SETTINGS_ENC_KEY
+#
+# Generate one with: openssl rand -base64 32
+SETTINGS_ENC_KEY=

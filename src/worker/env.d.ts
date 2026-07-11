@@ -11,4 +11,12 @@ interface Env {
    * so the worker compiles whether or not the bucket is bound.
    */
   CLOUDINARY_URL?: string;
+  /**
+   * 32-byte AES-256 key (standard-base64-encoded, `openssl rand -base64 32`) used to encrypt
+   * store payment-provider secrets at rest in the D1 `settings` table (see lib/crypto.ts).
+   * OPTIONAL — only required when the commerce module configures a payment gateway (Culqi) or
+   * an order-hook auth header; content-only and catalog-only instances never need it. Resolved
+   * and validated only at encrypt/decrypt time, never at worker boot.
+   */
+  SETTINGS_ENC_KEY?: string;
 }
