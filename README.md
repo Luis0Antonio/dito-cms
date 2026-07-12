@@ -211,31 +211,23 @@ const { data: features } = await fetch(`${base}/content/features`).then((r) => r
 
 ## MCP server
 
-A **stateless MCP server** at `POST /mcp` lets Claude (or any MCP client) model your content
-and manage entries — including pulling images into the media library from a URL. It exposes
-16 tools over the same services the admin API uses: `get_cms_info`, `list_collections`,
-`get_collection`, `create_collection`, `update_collection`, `set_collection_fields`,
-`delete_collection`, `list_entries`, `get_entry`, `create_entry`, `update_entry`,
-`publish_entry`, `unpublish_entry`, `delete_entry`, `list_media`, and `upload_media_from_url`.
-
-Authenticate with a Bearer **API key** (Settings → API keys).
-
-**Claude Code** (supports custom headers):
+A **stateless MCP server** at `POST /mcp` lets Claude (or any MCP client) model your content,
+author and publish entries, and pull media in from a URL — over the same services the admin API
+uses. Authenticate with a Bearer **API key** (Settings → API keys).
 
 ```bash
+# Claude Code (native HTTP transport). Other clients: see the full guide below.
 claude mcp add --transport http dito https://your-worker.workers.dev/mcp \
   --header "Authorization: Bearer dito_xxx"
-```
-
-**Claude Desktop** (its connector UI can't send custom headers — bridge with `mcp-remote`):
-
-```bash
-npx mcp-remote https://your-worker.workers.dev/mcp --header "Authorization: Bearer dito_xxx"
 ```
 
 Then ask Claude to, say, *"model a landing page with a hero, features and testimonials, and
 fill it in with an image from this URL"* — it will create the collections, author entries,
 and publish them. Revoking the key immediately `401`s the endpoint.
+
+**→ Full MCP guide: [docs/mcp.md](docs/mcp.md)** — endpoint, auth, every client's config, the
+tool catalog, and agent workflows. It's a standalone, public doc you can point an AI agent at to
+discover and drive an instance **without giving it access to this repository**.
 
 ## Architecture
 
