@@ -21,6 +21,7 @@ import { SettingsLayout } from "./features/settings/settings-layout";
 import { GeneralSettingsPage } from "./features/settings/general-page";
 import { UsersPage } from "./features/settings/users-page";
 import { ApiKeysPage } from "./features/settings/api-keys-page";
+import { AgentsPage } from "./features/settings/agents-page";
 import { ImportExportPage } from "./features/settings/import-export-page";
 import { DeploySettingsPage } from "./features/settings/deploy-page";
 import { NotFoundPage } from "./features/misc/not-found-page";
@@ -169,6 +170,12 @@ const apiKeysRoute = createRoute({
   component: ApiKeysPage,
 });
 
+const agentsRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "agents",
+  component: AgentsPage,
+});
+
 const importExportRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "import-export",
@@ -198,6 +205,7 @@ export const routeTree = rootRoute.addChildren([
       generalSettingsRoute,
       usersRoute,
       apiKeysRoute,
+      agentsRoute,
       importExportRoute,
       deployRoute,
     ]),
