@@ -148,6 +148,14 @@ the Worker never touches the key at boot.
 
 ## Managing multiple clients
 
+| Command | Use it to | Creates infra? |
+|---|---|---|
+| `bun run new-client <name>` | Provision **and** deploy a **new** client | ✅ D1 + R2 |
+| `bun run deploy-client <name>` | Redeploy **one existing** client | ❌ must exist |
+| `bun run deploy-all` | Redeploy **every** client (one shared build) | ❌ must exist |
+
+All three accept `--account <id>` for multi-account logins (see the callout below).
+
 Running Dito for several clients? You do **not** need a clone — or a GitHub repo — per client.
 Each Dito instance is single-tenant (one Worker + one D1 + one R2), and that isolation is the
 point: separate data, separate billing, and offboarding a client is just deleting its Worker.
