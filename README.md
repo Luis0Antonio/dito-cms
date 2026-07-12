@@ -136,6 +136,78 @@ existing files; each object keeps serving from the backend it was uploaded to. C
 size is governed by your Cloudinary plan (lower `MAX_CLOUDINARY_VIDEO_BYTES` in
 `src/shared/constants.ts` to cap video below the 2 GB default).
 
+## Managing multiple clients
+
+Running Dito for several clients? You do **not** need a clone — or a GitHub repo — per client.
+Each Dito instance is single-tenant (one Worker + one D1 + one R2), and that isolation is the
+point: separate data, separate billing, and offboarding a client is just deleting its Worker.
+From this one clone you provision and deploy an isolated instance per client with one command:
+
+```bash
+bun run new-client acme   # creates D1 + R2, writes clients/acme.jsonc, migrates, deploys dito-acme
+```
+
+> **Multiple Cloudflare accounts?** If `wrangler whoami` lists more than one account, wrangler
+> can't pick in non-interactive mode — target one per run with `--account <id>` (or the
+> `CLOUDFLARE_ACCOUNT_ID` env var); every fleet command honors it:
+>
+> ```bash
+> bun run new-client acme --account <id>
+> bun run deploy-all --account <id>
+> ```
+>
+> With a single account it's optional. (`wrangler login` first if you're not authenticated.)
+
+For client `acme` this provisions D1 `dito-acme-db` and R2 `dito-acme-media`, writes
+`clients/acme.jsonc` (that client's config), applies migrations, builds, and deploys the Worker
+`dito-acme` — printing its `https://dito-acme.<your-subdomain>.workers.dev` URL. The first visit
+is the usual **/setup** first-run screen. Re-running is idempotent: it reuses the existing
+resources and just refreshes the config and redeploys.
+
+Redeploy after a code or schema change:
+
+```bash
+bun run deploy-client acme   # migrate + build + redeploy one client
+bun run deploy-all           # build once, then migrate + redeploy EVERY client in clients/
+```
+
+`deploy-all` is how you roll a CMS update out to the whole fleet — all clients share the same
+code and a single build.
+
+**`clients/<name>.jsonc` is your fleet's source of truth.** Each is a copy of `wrangler.jsonc`
+with the Worker `name` and D1/R2 resource ids swapped (binding names stay `DB` / `MEDIA`, so no
+app code changes). Commit them — they hold no secrets, only Cloudflare resource ids, and they
+record who is deployed, giving you a per-client "backup" without a repo each. **GitHub is not
+required to deploy:** `wrangler deploy` ships straight from this clone; only the
+"Deploy to Cloudflare" button needs a Git connection.
+
+Per-client knobs are the same as a single instance: the [auth secret](#auth-secret)
+auto-generates (or set `BETTER_AUTH_SECRET` per client), [Workers Paid](#plan-limits--notes) is
+recommended for production, and you set any per-client secret with
+`wrangler secret put <NAME> -c clients/<name>.jsonc`.
+
+### Custom domains
+
+Each client eventually wants `cms.theirdomain.com`. Add it per client — either from the
+Cloudflare dashboard (the Worker's **Settings → Domains & Routes**) or by adding a `routes`
+entry to `clients/<name>.jsonc`:
+
+```jsonc
+"routes": [{ "pattern": "cms.theirdomain.com", "custom_domain": true }]
+```
+
+The domain's zone must be on the same Cloudflare account. (Left out of `new-client` for now —
+it's a one-time add per client.)
+
+### Offboarding a client
+
+```bash
+wrangler delete --name dito-acme        # delete the Worker
+wrangler d1 delete dito-acme-db         # delete the database
+wrangler r2 bucket delete dito-acme-media   # delete the bucket
+rm clients/acme.jsonc                   # drop the config
+```
+
 ## Content model & authoring
 
 Define **collections** (many entries) and **singletons** (exactly one entry) in the schema
