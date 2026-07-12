@@ -280,18 +280,21 @@ MCP '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_cms_inf
 MCP '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"create_collection","arguments":{"slug":"hero","name":"Hero","type":"singleton","fields":[{"name":"headline","label":"Headline","type":"text","options":{"required":true}}]}}}'
 MCP '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"create_entry","arguments":{"collection":"hero","publish":true,"data":{"headline":"Hello"}}}}'
 ```
-The 16 tools: `get_cms_info`, `list_collections`, `get_collection`, `create_collection`,
-`update_collection`, `set_collection_fields`, `delete_collection`, `list_entries`,
-`get_entry`, `create_entry`, `update_entry`, `publish_entry`, `unpublish_entry`,
-`delete_entry`, `list_media`, `upload_media_from_url`. Field types: text, rich_text, number,
-boolean, picture, video, link (see `get_cms_info` for per-type options).
+The 17 always-on tools: `get_cms_info`, `set_store_enabled`, `list_collections`,
+`get_collection`, `create_collection`, `update_collection`, `set_collection_fields`,
+`delete_collection`, `list_entries`, `get_entry`, `create_entry`, `update_entry`,
+`publish_entry`, `unpublish_entry`, `delete_entry`, `list_media`, `upload_media_from_url`.
+Enabling the Store module adds 11 more — see [docs/mcp.md](../../../docs/mcp.md) for the full
+catalog. Field types: text, rich_text, number, boolean, picture, video, link (see
+`get_cms_info` for per-type options).
 
 ### Verification checklist
 
 - Local/Deploy boots: `GET /api/health` → `{"ok":true}`.
 - Fresh vs initialized: `GET /api/setup/status` → `{"initialized":bool}`.
 - Key works: `GET /api/admin/me` with `Authorization: Bearer <key>` → `{"via":"apikey"}`.
-- MCP up: `POST /mcp` `tools/list` returns 16 tools; the same call **without** a key → 401.
+- MCP up: `POST /mcp` `tools/list` returns 17 tools (28 with the Store module enabled); the
+  same call **without** a key → 401.
 - Content flows: publish an entry, then `GET /api/v1/content/<slug>` returns it (delivery
   serves published content only).
 
