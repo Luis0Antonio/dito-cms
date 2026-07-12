@@ -11,6 +11,7 @@ export function SettingsLayout(): React.ReactElement {
     { to: "/settings/general", labelKey: "settings.tabs.general" as const },
     { to: "/settings/users", labelKey: "settings.tabs.users" as const },
     { to: "/settings/api-keys", labelKey: "settings.tabs.apiKeys" as const },
+    { to: "/settings/agents", labelKey: "settings.tabs.agents" as const },
     { to: "/settings/deploy", labelKey: "settings.tabs.deploy" as const },
     { to: "/settings/import-export", labelKey: "settings.tabs.importExport" as const },
   ];
