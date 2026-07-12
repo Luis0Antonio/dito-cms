@@ -39,10 +39,20 @@ import {
   updateCategory,
 } from "../services/store/categories";
 import { getProductFields, setProductFields } from "../services/store/product-schema";
+import { cancelOrder, fulfillOrder, getOrderDetail, listOrders } from "../services/store/orders";
 
 import { FIELD_TYPE_LIST, type FieldOptions } from "@/shared/field-types";
 import { APP_NAME, APP_VERSION } from "@/shared/constants";
-import type { CategoryDTO, EntryData, EntryDetail, MediaDTO, ProductDetail, ProductStatus } from "@/shared/api-types";
+import type {
+  AdminOrderDetail,
+  CategoryDTO,
+  EntryData,
+  EntryDetail,
+  MediaDTO,
+  OrderStatus,
+  ProductDetail,
+  ProductStatus,
+} from "@/shared/api-types";
 
 // The MCP toolset: thin wrappers over the same services the admin API uses, so validation,
 // publish semantics and media checks are identical. Outputs are deliberately compact (the
@@ -231,8 +241,8 @@ export const TOOLS: ToolDef[] = [
   defineTool({
     name: "set_store_enabled",
     description:
-      "Enable or disable the optional Store (commerce) module. When enabled, the store_* tools " +
-      "(products, categories, product schema) become available and the public catalog is served " +
+      "Enable or disable the optional Store (commerce) module. When enabled, the store tools " +
+      "(products, categories, product schema, orders) become available and the public catalog is served " +
       "under /api/commerce/*. OFF by default. This tool is always available regardless of the toggle.",
     schema: z.object({
       enabled: z.boolean().describe("true to enable the Store module, false to disable it."),
@@ -515,6 +525,60 @@ async function resolveCategoryId(ctx: ToolContext, slug: string): Promise<string
   return (await getCategory(ctx.db, slug)).id;
 }
 
+const ORDER_STATUS_VALUES = [
+  "pending",
+  "awaiting_payment",
+  "paid",
+  "fulfilled",
+  "cancelled",
+  "failed",
+  "refunded",
+] as const;
+
+/**
+ * Compact order view for MCP. Deliberately drops the buyer `accessToken` (a status-link
+ * secret with no merchant use here) and each payment's redacted `raw` blob + internal ids —
+ * mirrors how summarizeProduct reduces images to a count. Amounts stay in minor units.
+ */
+function summarizeOrder(o: AdminOrderDetail) {
+  return {
+    id: o.id,
+    number: o.number,
+    status: o.status,
+    email: o.email,
+    customerName: o.customerName,
+    customerPhone: o.customerPhone,
+    shippingAddress: o.shippingAddress,
+    note: o.note,
+    currency: o.currency,
+    subtotalAmount: o.subtotalAmount,
+    shippingAmount: o.shippingAmount,
+    totalAmount: o.totalAmount,
+    stockConflict: o.stockConflict,
+    createdAt: o.createdAt,
+    paidAt: o.paidAt,
+    fulfilledAt: o.fulfilledAt,
+    cancelledAt: o.cancelledAt,
+    items: o.items.map((it) => ({
+      productId: it.productId,
+      name: it.name,
+      sku: it.sku,
+      quantity: it.quantity,
+      unitAmount: it.unitAmount,
+      totalAmount: it.totalAmount,
+    })),
+    payments: o.payments.map((p) => ({
+      provider: p.provider,
+      providerRef: p.providerRef,
+      status: p.status,
+      amount: p.amount,
+      currency: p.currency,
+      errorCode: p.errorCode,
+      errorMessage: p.errorMessage,
+    })),
+  };
+}
+
 const productInputFields = {
   name: z.string().optional().describe("Display name."),
   description: z.string().nullable().optional(),
@@ -721,5 +785,53 @@ export const STORE_TOOLS: ToolDef[] = [
     handler: async (ctx, args) => {
       return setProductFields(ctx.db, { fields: toFieldInputs(args.fields), allowDestructive: args.allowDestructive });
     },
+  }),
+
+  // --- orders (read + fulfil/cancel; no payment-credential surface) -----------
+
+  defineTool({
+    name: "list_orders",
+    description:
+      "List orders (compact: number, status, email, total, timestamps). Filter by status; `search` " +
+      "matches an exact order number (42 / #42) or an email. Newest first; paginates.",
+    schema: z.object({
+      status: z.enum(ORDER_STATUS_VALUES).optional(),
+      search: z.string().optional().describe("Exact order number (`42` / `#42`) or an email."),
+      limit: z.number().int().min(1).max(100).optional().describe("Default 50."),
+      offset: z.number().int().min(0).optional(),
+    }),
+    handler: async (ctx, args) => {
+      const r = await listOrders(ctx.db, {
+        status: args.status as OrderStatus | undefined,
+        search: args.search,
+        limit: args.limit,
+        offset: args.offset,
+      });
+      // AdminOrderSummary is already compact (no items/payments) — return as-is.
+      return { total: r.total, orders: r.orders };
+    },
+  }),
+
+  defineTool({
+    name: "get_order",
+    description:
+      "Get one order by id: customer, line items (purchase-time snapshots), totals, and payment attempts.",
+    schema: z.object({ id: z.string() }),
+    handler: async (ctx, args) => summarizeOrder(await getOrderDetail(ctx.db, args.id)),
+  }),
+
+  defineTool({
+    name: "fulfill_order",
+    description: "Mark a paid order as fulfilled. Only paid orders can be fulfilled (otherwise a conflict error).",
+    schema: z.object({ id: z.string() }),
+    handler: async (ctx, args) => summarizeOrder(await fulfillOrder(ctx.db, args.id)),
+  }),
+
+  defineTool({
+    name: "cancel_order",
+    description:
+      "Cancel a pending or awaiting-payment order. Paid orders can't be cancelled here — they need a refund (a later phase).",
+    schema: z.object({ id: z.string() }),
+    handler: async (ctx, args) => summarizeOrder(await cancelOrder(ctx.db, args.id)),
   }),
 ];

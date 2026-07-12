@@ -139,8 +139,10 @@ async function findOrderRow(db: DrizzleDb, orderId: string): Promise<OrderRow> {
 // --- admin queries -----------------------------------------------------------
 
 /**
- * Admin order list, newest first. `search` matches an exact order number (`42` / `#42`) or an
- * email — case-insensitive exact match, or prefix — since admins paste whole addresses.
+ * Admin order list. Ordered by lifecycle stage so the orders that need attention float to the
+ * top — open stages first (pending, awaiting_payment, paid), then terminal ones — and newest
+ * first within each stage. `search` matches an exact order number (`42` / `#42`) or an email —
+ * case-insensitive exact match, or prefix — since admins paste whole addresses.
  */
 export async function listOrders(db: DrizzleDb, params: ListOrdersParams): Promise<OrderListResult> {
   const limit = Math.min(Math.max(params.limit ?? DEFAULT_LIST_LIMIT, 1), MAX_LIST_LIMIT);
@@ -161,12 +163,24 @@ export async function listOrders(db: DrizzleDb, params: ListOrdersParams): Promi
   }
   const where = conds.length > 0 ? and(...conds) : undefined;
 
+  // Lifecycle-stage ordering: open/actionable stages first, terminal ones last. Within a stage,
+  // newest first. (A status filter collapses this to a single stage, leaving the date order.)
+  const stageRank = sql`case ${orders.status}
+    when 'pending' then 0
+    when 'awaiting_payment' then 1
+    when 'paid' then 2
+    when 'fulfilled' then 3
+    when 'cancelled' then 4
+    when 'refunded' then 5
+    when 'failed' then 6
+    else 7 end`;
+
   const totalRow = await db.select({ n: count() }).from(orders).where(where).get();
   const rows = await db
     .select()
     .from(orders)
     .where(where)
-    .orderBy(desc(orders.createdAt), desc(orders.number))
+    .orderBy(stageRank, desc(orders.createdAt), desc(orders.number))
     .limit(limit)
     .offset(offset)
     .all();

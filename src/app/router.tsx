@@ -19,6 +19,8 @@ import { NewEntryPage, EditEntryPage } from "./features/entries/entry-editor-pag
 import { MediaPage } from "./features/media/media-page";
 import { StoreLayout } from "./features/store/store-layout";
 import { ProductsListPage } from "./features/store/products-list-page";
+import { OrdersListPage } from "./features/store/orders-list-page";
+import { OrderDetailPage } from "./features/store/order-detail-page";
 import { CategoriesPage } from "./features/store/categories-page";
 import { ProductSchemaPage } from "./features/store/product-schema-page";
 import { NewProductPage, EditProductPage } from "./features/store/product-editor-page";
@@ -28,6 +30,7 @@ import { UsersPage } from "./features/settings/users-page";
 import { ApiKeysPage } from "./features/settings/api-keys-page";
 import { ImportExportPage } from "./features/settings/import-export-page";
 import { DeploySettingsPage } from "./features/settings/deploy-page";
+import { StoreSettingsPage } from "./features/settings/store-page";
 import { NotFoundPage } from "./features/misc/not-found-page";
 
 export interface RouterContext {
@@ -156,7 +159,7 @@ const storeIndexRoute = createRoute({
   getParentRoute: () => storeRoute,
   path: "/",
   beforeLoad: () => {
-    throw redirect({ to: "/store/products" });
+    throw redirect({ to: "/store/orders" });
   },
 });
 
@@ -164,6 +167,12 @@ const storeProductsRoute = createRoute({
   getParentRoute: () => storeRoute,
   path: "products",
   component: ProductsListPage,
+});
+
+const storeOrdersRoute = createRoute({
+  getParentRoute: () => storeRoute,
+  path: "orders",
+  component: OrdersListPage,
 });
 
 const storeCategoriesRoute = createRoute({
@@ -192,6 +201,15 @@ const editProductRoute = createRoute({
   path: "/store/products/$slug",
   component: EditProductPage,
   staticData: { title: "Product" },
+  beforeLoad: ensureCommerceEnabled,
+});
+
+// The order detail is a full page (outside the tabbed Store shell), like the product editor.
+const orderDetailRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/store/orders/$id",
+  component: OrderDetailPage,
+  staticData: { title: "Order" },
   beforeLoad: ensureCommerceEnabled,
 });
 
@@ -240,6 +258,14 @@ const deployRoute = createRoute({
   component: DeploySettingsPage,
 });
 
+// Store settings live under Settings but are gated by the commerce toggle, like the Store section.
+const storeSettingsRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "store",
+  component: StoreSettingsPage,
+  beforeLoad: ensureCommerceEnabled,
+});
+
 export const routeTree = rootRoute.addChildren([
   setupRoute,
   loginRoute,
@@ -254,11 +280,13 @@ export const routeTree = rootRoute.addChildren([
     storeRoute.addChildren([
       storeIndexRoute,
       storeProductsRoute,
+      storeOrdersRoute,
       storeCategoriesRoute,
       storeSchemaRoute,
     ]),
     newProductRoute,
     editProductRoute,
+    orderDetailRoute,
     settingsRoute.addChildren([
       settingsIndexRoute,
       generalSettingsRoute,
@@ -266,6 +294,7 @@ export const routeTree = rootRoute.addChildren([
       apiKeysRoute,
       importExportRoute,
       deployRoute,
+      storeSettingsRoute,
     ]),
   ]),
 ]);
