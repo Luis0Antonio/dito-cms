@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tienda Demo</title>
+  <style>
+    :root {
+      --border: #e2e2e2;
+      --text: #1a1a1a;
+      --muted: #666;
+      --accent: #1a1a1a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #fff;
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      line-height: 1.5;
+    }
+    .container {
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 0 20px;
+    }
+
+    /* Header */
+    header {
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      background: #fff;
+      z-index: 10;
+    }
+    .header-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+    .logo {
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+    .cart-btn {
+      position: relative;
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 14px;
+      font-size: 14px;
+      cursor: pointer;
+      color: var(--text);
+      transition: border-color 0.15s;
+    }
+    .cart-btn:hover { border-color: #999; }
+    .cart-count {
+      display: inline-block;
+      min-width: 18px;
+      height: 18px;
+      line-height: 18px;
+      text-align: center;
+      background: var(--accent);
+      color: #fff;
+      border-radius: 9px;
+      font-size: 11px;
+      margin-left: 6px;
+      padding: 0 5px;
+    }
+
+    /* Grid */
+    main { padding: 32px 0 64px; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 20px;
+    }
+    .card {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      transition: border-color 0.15s;
+    }
+    .card:hover { border-color: #bbb; }
+    .thumb {
+      aspect-ratio: 4 / 3;
+      background: #f4f4f4;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #bbb;
+      font-size: 13px;
+    }
+    .thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .card-body {
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      flex: 1;
+    }
+    .card-name { font-size: 15px; font-weight: 500; }
+    .card-price { font-size: 15px; color: var(--text); }
+    .card-body .spacer { flex: 1; }
+    .add-btn {
+      width: 100%;
+      padding: 9px;
+      border: 1px solid var(--accent);
+      background: var(--accent);
+      color: #fff;
+      border-radius: 6px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .add-btn:hover { opacity: 0.85; }
+    .add-btn:disabled {
+      background: #f4f4f4;
+      color: #999;
+      border-color: var(--border);
+      cursor: not-allowed;
+    }
+
+    /* Messages */
+    .message {
+      text-align: center;
+      color: var(--muted);
+      padding: 48px 20px;
+      font-size: 15px;
+    }
+
+    /* Cart drawer */
+    .overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.3);
+      display: none;
+      z-index: 20;
+    }
+    .overlay.open { display: block; }
+    .drawer {
+      position: fixed;
+      top: 0;
+      right: 0;
+      width: 360px;
+      max-width: 90vw;
+      height: 100%;
+      background: #fff;
+      border-left: 1px solid var(--border);
+      transform: translateX(100%);
+      transition: transform 0.2s ease;
+      z-index: 30;
+      display: flex;
+      flex-direction: column;
+    }
+    .drawer.open { transform: translateX(0); }
+    .drawer-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 18px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .drawer-head h2 { margin: 0; font-size: 16px; font-weight: 600; }
+    .close-btn {
+      background: none;
+      border: none;
+      font-size: 22px;
+      line-height: 1;
+      cursor: pointer;
+      color: var(--muted);
+    }
+    .drawer-body { flex: 1; overflow-y: auto; padding: 8px 20px; }
+    .drawer-foot {
+      border-top: 1px solid var(--border);
+      padding: 18px 20px;
+    }
+
+    .line {
+      display: flex;
+      gap: 12px;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .line:last-child { border-bottom: none; }
+    .line-info { flex: 1; }
+    .line-name { font-size: 14px; font-weight: 500; }
+    .line-price { font-size: 13px; color: var(--muted); margin-top: 2px; }
+    .qty {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .qty button {
+      width: 26px;
+      height: 26px;
+      border: 1px solid var(--border);
+      background: #fff;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 15px;
+      line-height: 1;
+      color: var(--text);
+    }
+    .qty button:hover { border-color: #999; }
+    .qty span { min-width: 20px; text-align: center; font-size: 14px; }
+    .remove {
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 12px;
+      cursor: pointer;
+      text-decoration: underline;
+      padding: 0;
+      margin-top: 6px;
+    }
+    .line-sub { font-size: 14px; font-weight: 500; white-space: nowrap; }
+
+    .total-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 14px;
+    }
+    .field { margin-bottom: 10px; }
+    .field label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+    .field input {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 14px;
+      font-family: inherit;
+    }
+    .field input:focus { outline: none; border-color: #999; }
+    .checkout-btn {
+      width: 100%;
+      padding: 11px;
+      border: none;
+      background: var(--accent);
+      color: #fff;
+      border-radius: 6px;
+      font-size: 15px;
+      cursor: pointer;
+      margin-top: 6px;
+      transition: opacity 0.15s;
+    }
+    .checkout-btn:hover { opacity: 0.85; }
+    .checkout-btn:disabled { background: #ccc; cursor: not-allowed; opacity: 1; }
+    .empty-cart { color: var(--muted); font-size: 14px; text-align: center; padding: 40px 0; }
+    .cart-error { color: #c0392b; font-size: 13px; margin: 2px 0 10px; }
+    .cart-error:empty { display: none; }
+    .field label .req { color: #c0392b; }
+
+    /* Confirmation */
+    .confirm {
+      text-align: center;
+      padding: 64px 20px;
+      max-width: 480px;
+      margin: 0 auto;
+    }
+    .confirm .check {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: #eef7ee;
+      color: #2e7d32;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      margin: 0 auto 20px;
+    }
+    .confirm h2 { margin: 0 0 10px; font-size: 22px; }
+    .confirm p { color: var(--muted); margin: 4px 0; }
+    .confirm .order-no { font-size: 16px; color: var(--text); font-weight: 600; margin-top: 12px; }
+    .confirm .order-total { font-size: 16px; color: var(--text); }
+    .back-btn {
+      margin-top: 24px;
+      padding: 10px 20px;
+      border: 1px solid var(--accent);
+      background: #fff;
+      color: var(--accent);
+      border-radius: 6px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .back-btn:hover { background: #f4f4f4; }
+
+    @media (max-width: 480px) {
+      .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <div class="logo">Tienda Demo</div>
+      <button class="cart-btn" id="cartToggle" onclick="openCart()">
+        Carrito<span class="cart-count" id="cartCount">0</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="container">
+    <div id="view"></div>
+  </main>
+
+  <!-- Cart drawer -->
+  <div class="overlay" id="overlay" onclick="closeCart()"></div>
+  <aside class="drawer" id="drawer" aria-label="Carrito de compras">
+    <div class="drawer-head">
+      <h2>Tu carrito</h2>
+      <button class="close-btn" onclick="closeCart()" aria-label="Cerrar">&times;</button>
+    </div>
+    <div class="drawer-body" id="cartBody"></div>
+    <div class="drawer-foot" id="cartFoot"></div>
+  </aside>
+
+  <script>
+    // Example storefront for the Dito CMS commerce API. See README.md in this folder for the
+    // full API reference (catalog, availability, checkout, order status) and how it's used here.
+    // API_BASE is the running CMS origin; point it at your deployment to test against prod.
+    const API_BASE = "http://localhost:5173";
+
+    // ---- State ----
+    let products = [];
+    const cart = {}; // { [productId]: { product, qty } }
+    let checkingOut = false; // guards double-submit while a checkout POST is in flight
+
+    // ---- Helpers ----
+    function formatPrice(amount) {
+      return "S/ " + (amount / 100).toFixed(2);
+    }
+
+    function escapeHtml(str) {
+      return String(str == null ? "" : str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    // ---- Load products ----
+    async function loadProducts() {
+      const view = document.getElementById("view");
+      view.innerHTML = '<div class="message">Cargando productos…</div>';
+      try {
+        const res = await fetch(`${API_BASE}/api/commerce/products`);
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const json = await res.json();
+        products = Array.isArray(json.data) ? json.data : [];
+        renderGrid();
+      } catch (err) {
+        console.error("Error cargando productos:", err);
+        view.innerHTML =
+          '<div class="message">No se pudieron cargar los productos. ' +
+          '¿Está corriendo el CMS en ' + API_BASE + '?</div>';
+      }
+    }
+
+    // ---- Render product grid ----
+    function renderGrid() {
+      const view = document.getElementById("view");
+      if (!products.length) {
+        view.innerHTML = '<div class="message">No hay productos disponibles.</div>';
+        return;
+      }
+      const cards = products.map((p) => {
+        const img = p.images && p.images[0] && p.images[0].url;
+        const thumb = img
+          ? `<div class="thumb"><img src="${escapeHtml(img)}" alt="${escapeHtml(p.name)}" /></div>`
+          : `<div class="thumb">Sin imagen</div>`;
+        const btn = p.available === false
+          ? `<button class="add-btn" disabled>Agotado</button>`
+          : `<button class="add-btn" onclick="addToCart('${escapeHtml(p.id)}')">Agregar al carrito</button>`;
+        return `
+          <div class="card">
+            ${thumb}
+            <div class="card-body">
+              <div class="card-name">${escapeHtml(p.name)}</div>
+              <div class="card-price">${formatPrice(p.priceAmount)}</div>
+              <div class="spacer"></div>
+              ${btn}
+            </div>
+          </div>`;
+      }).join("");
+      view.innerHTML = `<div class="grid">${cards}</div>`;
+    }
+
+    // ---- Cart operations ----
+    function addToCart(id) {
+      const product = products.find((p) => p.id === id);
+      if (!product || product.available === false) return;
+      if (cart[id]) cart[id].qty += 1;
+      else cart[id] = { product, qty: 1 };
+      updateCartUI();
+      openCart();
+    }
+
+    function changeQty(id, delta) {
+      if (!cart[id]) return;
+      cart[id].qty += delta;
+      if (cart[id].qty <= 0) delete cart[id];
+      updateCartUI();
+    }
+
+    function removeItem(id) {
+      delete cart[id];
+      updateCartUI();
+    }
+
+    function cartItems() {
+      return Object.values(cart);
+    }
+
+    function cartCount() {
+      return cartItems().reduce((n, it) => n + it.qty, 0);
+    }
+
+    function cartTotal() {
+      return cartItems().reduce((sum, it) => sum + it.product.priceAmount * it.qty, 0);
+    }
+
+    // ---- Cart UI ----
+    function updateCartUI() {
+      document.getElementById("cartCount").textContent = cartCount();
+
+      const body = document.getElementById("cartBody");
+      const foot = document.getElementById("cartFoot");
+      const items = cartItems();
+
+      if (!items.length) {
+        body.innerHTML = '<div class="empty-cart">Tu carrito está vacío.</div>';
+        foot.innerHTML = "";
+        return;
+      }
+
+      body.innerHTML = items.map((it) => {
+        const p = it.product;
+        return `
+          <div class="line">
+            <div class="line-info">
+              <div class="line-name">${escapeHtml(p.name)}</div>
+              <div class="line-price">${formatPrice(p.priceAmount)} c/u</div>
+              <div class="qty">
+                <button onclick="changeQty('${escapeHtml(p.id)}', -1)" aria-label="Restar">−</button>
+                <span>${it.qty}</span>
+                <button onclick="changeQty('${escapeHtml(p.id)}', 1)" aria-label="Sumar">+</button>
+              </div>
+              <button class="remove" onclick="removeItem('${escapeHtml(p.id)}')">Eliminar</button>
+            </div>
+            <div class="line-sub">${formatPrice(p.priceAmount * it.qty)}</div>
+          </div>`;
+      }).join("");
+
+      // Preserve typed values across re-renders (updateCartUI rebuilds this footer on qty change).
+      const prevName = document.getElementById("custName")?.value ?? "";
+      const prevEmail = document.getElementById("custEmail")?.value ?? "";
+      foot.innerHTML = `
+        <div class="total-row"><span>Total</span><span>${formatPrice(cartTotal())}</span></div>
+        <div class="field">
+          <label for="custName">Nombre (opcional)</label>
+          <input id="custName" type="text" placeholder="Tu nombre" autocomplete="name" value="${escapeHtml(prevName)}" />
+        </div>
+        <div class="field">
+          <label for="custEmail">Email <span class="req">*</span></label>
+          <input id="custEmail" type="email" placeholder="tu@email.com" autocomplete="email" required value="${escapeHtml(prevEmail)}" />
+        </div>
+        <div id="cartError" class="cart-error" role="alert"></div>
+        <button class="checkout-btn" id="checkoutBtn" onclick="checkout()">Finalizar compra</button>`;
+    }
+
+    // ---- Drawer open/close ----
+    function openCart() {
+      document.getElementById("drawer").classList.add("open");
+      document.getElementById("overlay").classList.add("open");
+    }
+    function closeCart() {
+      document.getElementById("drawer").classList.remove("open");
+      document.getElementById("overlay").classList.remove("open");
+    }
+
+    // ---- Checkout (real: POST /api/commerce/checkout) ----
+    // No paymentToken is sent, so the CMS creates the order as `pending` (no charge attempt) and
+    // returns the real order. It immediately shows up in the admin under Tienda › Pedidos. Wiring
+    // an actual card payment (→ a `paid` order) needs Culqi test keys + in-browser tokenization.
+    async function checkout() {
+      if (checkingOut || !cartItems().length) return;
+
+      const nameInput = document.getElementById("custName");
+      const emailInput = document.getElementById("custEmail");
+      const errorBox = document.getElementById("cartError");
+      const btn = document.getElementById("checkoutBtn");
+      const email = (emailInput?.value || "").trim();
+      const name = (nameInput?.value || "").trim();
+
+      if (errorBox) errorBox.textContent = "";
+      // Email is required by the checkout API; gate on the client too for an instant message.
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        if (errorBox) errorBox.textContent = "Ingresa un correo válido para continuar.";
+        emailInput?.focus();
+        return;
+      }
+
+      const payload = {
+        email,
+        items: cartItems().map((it) => ({ slug: it.product.slug, quantity: it.qty })),
+      };
+      if (name) payload.customerName = name;
+
+      checkingOut = true;
+      if (btn) { btn.disabled = true; btn.textContent = "Procesando…"; }
+
+      try {
+        const res = await fetch(`${API_BASE}/api/commerce/checkout`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": newIdempotencyKey(),
+          },
+          body: JSON.stringify(payload),
+        });
+        // The error detail lives in the body even on a non-2xx response.
+        const body = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          if (errorBox) errorBox.textContent = checkoutErrorMessage(res.status, body);
+          return;
+        }
+
+        // 201 pending (no token) / 200 replay — a real order now exists in the CMS.
+        for (const k in cart) delete cart[k];
+        updateCartUI();
+        closeCart();
+        showConfirmation(body.order);
+      } catch (err) {
+        console.error("Error en checkout:", err);
+        if (errorBox) {
+          errorBox.textContent =
+            "No se pudo conectar con la tienda. ¿Está corriendo el CMS en " + API_BASE + "?";
+        }
+      } finally {
+        checkingOut = false;
+        if (btn) { btn.disabled = false; btn.textContent = "Finalizar compra"; }
+      }
+    }
+
+    // Fresh per checkout click: each submission is meant to be a distinct test order — reusing a
+    // key would replay (return) the first order instead of creating a new one. Button-disable
+    // handles the double-click case.
+    function newIdempotencyKey() {
+      if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+      return "demo-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+    }
+
+    // Map a non-2xx checkout response to a buyer-facing message (Spanish, matching the API's own).
+    function checkoutErrorMessage(status, body) {
+      const err = body && body.error;
+      if (status === 400 && err) {
+        const parts = [];
+        if (Array.isArray(err.itemErrors)) {
+          for (const ie of err.itemErrors) {
+            const p = products.find((x) => x.slug === ie.slug);
+            const label = p ? p.name : ie.slug;
+            parts.push(
+              ie.code === "insufficient_stock"
+                ? `${label}: stock insuficiente.`
+                : `${label}: ya no está disponible.`,
+            );
+          }
+        }
+        if (err.fieldErrors && err.fieldErrors.email) parts.push("Ingresa un correo válido.");
+        return parts.length ? parts.join(" ") : "Revisa los datos del pedido e inténtalo de nuevo.";
+      }
+      if (status === 429) return "Demasiados intentos. Espera un momento e inténtalo de nuevo.";
+      if (status === 503) return "Los pagos no están disponibles en este momento.";
+      return (err && err.message) || "No se pudo procesar el pedido. Inténtalo de nuevo.";
+    }
+
+    function showConfirmation(order) {
+      const num = order && order.number != null ? String(order.number) : "—";
+      const total = order && order.totalAmount != null ? formatPrice(order.totalAmount) : "";
+      document.getElementById("view").innerHTML = `
+        <div class="confirm">
+          <div class="check">✓</div>
+          <h2>¡Pedido recibido!</h2>
+          <p>Tu pedido quedó registrado y está pendiente de procesamiento.</p>
+          <div class="order-no">Pedido #${escapeHtml(num)}</div>
+          <div class="order-total">Total: ${total}</div>
+          <p style="font-size:13px;margin-top:16px;">Ya aparece en el panel del CMS, en Tienda › Pedidos.</p>
+          <button class="back-btn" onclick="loadProducts()">Seguir comprando</button>
+        </div>`;
+    }
+
+    // ---- Init ----
+    updateCartUI();
+    loadProducts();
+  </script>
+</body>
+</html>
