@@ -7,6 +7,8 @@ import { cn } from "@/app/lib/utils";
 interface CopyButtonProps {
   value: string;
   label?: string;
+  /** Text shown in place of `label` for the ~1.5s after a successful copy. Defaults to "Copied". */
+  copiedLabel?: string;
   className?: string;
   size?: "sm" | "default" | "icon";
   variant?: "outline" | "ghost" | "secondary" | "default";
@@ -15,6 +17,7 @@ interface CopyButtonProps {
 export function CopyButton({
   value,
   label,
+  copiedLabel = "Copied",
   className,
   size = "icon",
   variant = "outline",
@@ -35,7 +38,7 @@ export function CopyButton({
   return (
     <Button type="button" variant={variant} size={size} onClick={copy} className={cn(className)}>
       <Icon className={cn("size-4", copied && "text-success")} />
-      {label ? <span>{copied ? "Copied" : label}</span> : null}
+      {label ? <span>{copied ? copiedLabel : label}</span> : null}
     </Button>
   );
 }

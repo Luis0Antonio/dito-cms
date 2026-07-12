@@ -224,8 +224,46 @@ export const es = {
   "settings.tabs.general": "General",
   "settings.tabs.users": "Usuarios",
   "settings.tabs.apiKeys": "Claves API",
+  "settings.tabs.agents": "Agentes",
   "settings.tabs.deploy": "Despliegue",
   "settings.tabs.importExport": "Importar / Exportar",
+
+  // Settings - agents
+  "settings.agents.description":
+    "Conecta un agente de IA a este CMS para que gestione el contenido vía MCP. Copia el prompt de abajo en el agente que trabaja en tu sitio web.",
+  "settings.agents.copyPrompt": "Copiar prompt",
+  "settings.agents.copied": "Copiado",
+  "settings.agents.prompt.title": "Prompt para el agente",
+  "settings.agents.prompt.description":
+    "Pega este prompt en el agente. Deja la clave API para incrustarla automáticamente, o úsalo con el marcador y reemplázalo después.",
+  "settings.agents.prompt.keyPlaceholder": "<TU_CLAVE_API>",
+  "settings.agents.prompt.intro":
+    "Vas a conectarte a una instancia de Dito CMS: un CMS headless cuyo panel de administración, API de entrega pública y servidor MCP se ejecutan en {url}.",
+  "settings.agents.prompt.goal":
+    "OBJETIVO: Registra el servidor MCP de este CMS SOLO para ESTE proyecto y luego detente. NO crees colecciones, esquemas, campos ni contenido todavía; solo configura la conexión y confirma que funciona. Espera nuevas instrucciones antes de modelar cualquier contenido.",
+  "settings.agents.prompt.step1":
+    "Registra el servidor MCP, limitado al proyecto actual (no de forma global en esta máquina):",
+  "settings.agents.prompt.step1Note":
+    "`--scope local` mantiene el servidor solo en el directorio del proyecto actual; no se añade a tus otros proyectos ni al resto del computador.",
+  "settings.agents.prompt.manual":
+    "¿Usas otro cliente MCP (no Claude Code)? Configúralo manualmente con:",
+  "settings.agents.prompt.step2":
+    "Confirma la conexión ahora mismo (sin reiniciar) listando las herramientas disponibles. Debería devolver la lista de herramientas del CMS:",
+  "settings.agents.prompt.step3":
+    "Informa que el servidor MCP quedó registrado; sus herramientas (`get_cms_info`, `create_collection`, …) se cargan al iniciar una sesión nueva. Luego detente y espera instrucciones antes de modelar cualquier contenido.",
+  "settings.agents.prompt.reference":
+    "Referencia: los sitios web leen el contenido publicado en {url}/api/v1/content/<slug>. Mantén la clave API en secreto; no la subas al control de versiones.",
+  "settings.agents.apiKey.label": "Clave API (opcional)",
+  "settings.agents.apiKey.placeholder": "dito_…",
+  "settings.agents.apiKey.hint": "Pégala para incrustarla en el prompt.",
+  "settings.agents.apiKey.hintLink": "Crea una",
+  "settings.agents.how.title": "Cómo funciona",
+  "settings.agents.how.item1":
+    "Entrega este prompt a un agente de IA de programación (Claude Code, Cursor y similares) que trabaje dentro del proyecto de tu sitio web.",
+  "settings.agents.how.item2":
+    "Conecta al agente con este CMS a través del servidor MCP en {url}/mcp, limitado solo a ese proyecto; no se instala nada en el resto del computador.",
+  "settings.agents.how.item3":
+    "El prompt solo configura y verifica la conexión. No crea colecciones, esquemas ni contenido: el agente espera tus instrucciones antes de modelar nada.",
 
   // Settings - general
   "settings.general.project": "Proyecto",

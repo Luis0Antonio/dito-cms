@@ -226,8 +226,46 @@ export const en: Record<TranslationKey, string> = {
   "settings.tabs.general": "General",
   "settings.tabs.users": "Users",
   "settings.tabs.apiKeys": "API keys",
+  "settings.tabs.agents": "Agents",
   "settings.tabs.deploy": "Deploy",
   "settings.tabs.importExport": "Import / Export",
+
+  // Settings - agents
+  "settings.agents.description":
+    "Connect an AI agent to this CMS so it can manage content over MCP. Copy the prompt below into the agent working on your website.",
+  "settings.agents.copyPrompt": "Copy prompt",
+  "settings.agents.copied": "Copied",
+  "settings.agents.prompt.title": "Prompt for the agent",
+  "settings.agents.prompt.description":
+    "Paste this prompt into the agent. Leave the API key to embed it automatically, or use it as-is with the placeholder and replace it later.",
+  "settings.agents.prompt.keyPlaceholder": "<YOUR_API_KEY>",
+  "settings.agents.prompt.intro":
+    "You are being connected to a Dito CMS instance — a headless CMS whose admin panel, public delivery API, and MCP server all run at {url}.",
+  "settings.agents.prompt.goal":
+    "GOAL: Register this CMS's MCP server for THIS project only, then stop. Do NOT create collections, schemas, fields, or content yet — only set up the connection and confirm it works. Wait for further instructions before modeling any content.",
+  "settings.agents.prompt.step1":
+    "Register the MCP server, scoped to the current project (not globally on this machine):",
+  "settings.agents.prompt.step1Note":
+    "`--scope local` keeps the server in the current project directory only; it is not added to your other projects or the rest of the computer.",
+  "settings.agents.prompt.manual":
+    "Using a different MCP client (not Claude Code)? Configure it manually with:",
+  "settings.agents.prompt.step2":
+    "Confirm the connection right now (no restart needed) by listing the available tools. It should return the CMS's tool list:",
+  "settings.agents.prompt.step3":
+    "Report that the MCP server is registered — its tools (`get_cms_info`, `create_collection`, …) load when a new session starts. Then stop and wait for instructions before modeling any content.",
+  "settings.agents.prompt.reference":
+    "Reference: websites read published content at {url}/api/v1/content/<slug>. Keep the API key secret — do not commit it to version control.",
+  "settings.agents.apiKey.label": "API key (optional)",
+  "settings.agents.apiKey.placeholder": "dito_…",
+  "settings.agents.apiKey.hint": "Paste one to embed it in the prompt.",
+  "settings.agents.apiKey.hintLink": "Create one",
+  "settings.agents.how.title": "How it works",
+  "settings.agents.how.item1":
+    "Give this prompt to an AI coding agent (Claude Code, Cursor, and similar) working inside your website's project.",
+  "settings.agents.how.item2":
+    "It connects the agent to this CMS through the MCP server at {url}/mcp, scoped to that project only — nothing is installed on the rest of the computer.",
+  "settings.agents.how.item3":
+    "The prompt only sets up and verifies the connection. It does not create collections, schemas, or content — the agent waits for your instructions before modeling anything.",
 
   // Settings - general
   "settings.general.project": "Project",
