@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { richTextDocSchema } from "./richtext";
 
-// Single source of truth for the 8 field types. Isomorphic: no React, no Hono,
+// Single source of truth for the 9 field types. Isomorphic: no React, no Hono,
 // no worker imports. Each type carries:
 //   - optionsSchema    : validates the per-type options the user configures
 //   - buildValueSchema : (options, mode) => zod schema for a stored value
@@ -21,6 +21,7 @@ export const FIELD_TYPE_LIST = [
   "video",
   "link",
   "reference",
+  "select",
 ] as const;
 
 export type FieldType = (typeof FIELD_TYPE_LIST)[number];
@@ -44,6 +45,8 @@ export interface FieldOptions {
   targetCollections?: string[];
   /** reference: false → one id (string); true → ordered id[]. */
   multiple?: boolean;
+  /** select: the preset list of text options the value must be one of. */
+  choices?: string[];
 }
 
 export interface FieldTypeDef {
@@ -232,6 +235,42 @@ const referenceOptionsSchema: z.ZodType<FieldOptions> = z.object({
   multiple: z.boolean().optional(),
 });
 
+// --- select ------------------------------------------------------------------
+
+// Stored value is one of the author-defined `choices`. Drafts stay lenient (any
+// string, so half-finished content saves); publish enforces membership in the
+// current choices — the select analogue of text's length bounds. An old value
+// that a later schema edit dropped from `choices` therefore blocks publish (but
+// still loads as a draft), exactly like tightening maxLength. `choices` is never
+// empty: the options schema requires at least one.
+function selectValueSchema(options: FieldOptions, mode: ValueMode): z.ZodTypeAny {
+  if (mode === "publish" && options.choices && options.choices.length > 0) {
+    const allowed = new Set(options.choices);
+    return z.string().refine((v) => allowed.has(v), {
+      message: "Value must be one of the field's options",
+    });
+  }
+  return z.string();
+}
+
+const selectOptionsSchema = withDefaultCheck(
+  z.object({
+    required,
+    help,
+    placeholder,
+    default: z.string().optional(),
+    // The preset options: at least one, each trimmed + non-empty, no duplicates.
+    choices: z
+      .array(z.string().trim().min(1).max(200))
+      .min(1, "Add at least one option")
+      .max(200)
+      .refine((list) => new Set(list).size === list.length, {
+        message: "Options must be unique",
+      }),
+  }),
+  (o) => selectValueSchema(o, "publish"),
+);
+
 // --- registry ----------------------------------------------------------------
 
 export const FIELD_TYPES: Record<FieldType, FieldTypeDef> = {
@@ -306,6 +345,15 @@ export const FIELD_TYPES: Record<FieldType, FieldTypeDef> = {
     optionsSchema: referenceOptionsSchema,
     buildValueSchema: referenceValueSchema,
     resolveDefault: (o) => (o.multiple ? [] : undefined),
+  },
+  select: {
+    type: "select",
+    label: "Select",
+    description: "Choose one value from a preset list of options.",
+    hasRequired: true,
+    optionsSchema: selectOptionsSchema,
+    buildValueSchema: selectValueSchema,
+    resolveDefault: (o) => o.default,
   },
 };
 

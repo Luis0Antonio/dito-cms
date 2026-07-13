@@ -135,7 +135,7 @@ const entryData = z
   .describe(
     "Field values keyed by field name. rich_text accepts a plain string or a TipTap JSON doc; " +
       "picture/video take a media id; link takes { url, label?, newTab? }; reference takes a target " +
-      "entry id or slug (an array when multiple:true).",
+      "entry id or slug (an array when multiple:true); select takes one of the field's preset choice strings.",
   );
 
 function toFieldInputs(
@@ -198,6 +198,11 @@ const FIELD_TYPE_REFERENCE = [
     stores:
       "a target entry id — or an array of ids when multiple:true. You may pass a target entry SLUG instead of an id; it is resolved automatically. Delivery returns it expanded as { id, slug, title, collection }.",
     options: "targetCollections (allowed target collection slugs; [] or [\"*\"] = any), multiple, required, help",
+  },
+  {
+    type: "select",
+    stores: "a string that must be one of the field's preset `choices` (enforced at publish)",
+    options: "choices (the preset options; at least one, required), default (must be one of choices), placeholder, required, help",
   },
 ];
 

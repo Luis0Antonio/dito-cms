@@ -39,6 +39,17 @@ export function toFormValues(fields: FieldDTO[], data: EntryData): FormValues {
         };
         break;
       }
+      case "select":
+        // Existing selection wins; otherwise seed the default only for a brand-new
+        // entry (key absent). A saved-but-cleared select (key present, empty) stays
+        // empty so the default isn't silently reinstated. "" renders the placeholder.
+        out[field.name] =
+          typeof value === "string" && value
+            ? value
+            : !(field.name in data) && typeof field.options.default === "string"
+              ? field.options.default
+              : "";
+        break;
       default:
         out[field.name] = typeof value === "string" ? value : "";
     }
@@ -89,6 +100,10 @@ export function toEntryData(fields: FieldDTO[], values: FormValues): EntryData {
         }
         break;
       }
+      case "select":
+        // A chosen option is a non-empty string; "" (placeholder) means unset → null.
+        out[field.name] = typeof value === "string" && value ? value : null;
+        break;
       default: {
         const text = typeof value === "string" ? value : "";
         out[field.name] = text;

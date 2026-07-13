@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { useForm, type Control } from "react-hook-form";
-import { ChevronLeftIcon } from "lucide-react";
+import { useForm, useWatch, type Control } from "react-hook-form";
+import { ChevronLeftIcon, PlusIcon, XIcon } from "lucide-react";
 import { ZodError } from "zod";
 
 import { FIELD_TYPE_ICONS } from "../field-type-meta";
@@ -27,6 +27,13 @@ import { Input } from "@/app/components/ui/input";
 import { Textarea } from "@/app/components/ui/textarea";
 import { Switch } from "@/app/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/app/components/ui/toggle-group";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/app/components/ui/select";
 import {
   Sheet,
   SheetContent,
@@ -70,6 +77,7 @@ function defaultOptionsFor(type: FieldType): FieldOptions {
   if (type === "link") return { allowRelative: true };
   if (type === "boolean") return { default: false };
   if (type === "reference") return { targetCollections: [], multiple: false };
+  if (type === "select") return { choices: [""] };
   return {};
 }
 
@@ -78,6 +86,15 @@ function pruneOptions(options: FieldOptions): FieldOptions {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(options)) {
     if (value === undefined || value === null) continue;
+    // Array options (targetCollections, select's choices): trim + drop blank
+    // entries, but keep the (possibly empty) array — `targetCollections: []`
+    // means "any", so the key must survive.
+    if (Array.isArray(value)) {
+      out[key] = value
+        .map((v) => (typeof v === "string" ? v.trim() : v))
+        .filter((v) => !(typeof v === "string" && v === ""));
+      continue;
+    }
     if (typeof value === "string" && value.trim() === "") continue;
     if (typeof value === "number" && Number.isNaN(value)) continue;
     out[key] = typeof value === "string" ? value.trim() : value;
@@ -146,6 +163,14 @@ export function FieldSheet({
     }
 
     const pruned = pruneOptions(values.options);
+    if (type === "select") {
+      // A default that the author later removed from the options would fail the
+      // "default must be a valid option" check — drop it rather than error.
+      const choices = Array.isArray(pruned.choices) ? pruned.choices : [];
+      if (typeof pruned.default === "string" && !choices.includes(pruned.default)) {
+        delete pruned.default;
+      }
+    }
     try {
       const parsed = FIELD_TYPES[type].optionsSchema.parse(pruned);
       onApply({ name, label, type, options: parsed });
@@ -382,6 +407,114 @@ function NumberRow({
   );
 }
 
+/** Editable list of a select field's text options (at least one row is kept). */
+function ChoicesEditor({ control }: { control: Control<FieldFormValues> }): React.ReactElement {
+  return (
+    <FormField
+      control={control}
+      name={"options.choices" as never}
+      render={({ field }) => {
+        const choices: string[] = Array.isArray(field.value) ? (field.value as string[]) : [];
+        const update = (next: string[]): void => field.onChange(next);
+        return (
+          <FormItem>
+            <FormLabel>Options</FormLabel>
+            <FormDescription>The values an editor can choose from.</FormDescription>
+            <div className="space-y-2">
+              {choices.map((choice, i) => (
+                // Index key is safe here: rows aren't reordered, only edited/removed.
+                <div key={i} className="flex items-center gap-2">
+                  <Input
+                    placeholder={`Option ${i + 1}`}
+                    value={choice}
+                    onChange={(e) => update(choices.map((c, idx) => (idx === i ? e.target.value : c)))}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="Remove option"
+                    disabled={choices.length <= 1}
+                    onClick={() => update(choices.filter((_, idx) => idx !== i))}
+                  >
+                    <XIcon className="size-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mt-2"
+              onClick={() => update([...choices, ""])}
+            >
+              <PlusIcon className="size-4" />
+              Add option
+            </Button>
+            <FormMessage />
+          </FormItem>
+        );
+      }}
+    />
+  );
+}
+
+/** Optional default value, chosen from the field's current (non-blank, unique) options. */
+function DefaultChoiceRow({ control }: { control: Control<FieldFormValues> }): React.ReactElement {
+  const watched = useWatch({ control, name: "options.choices" as never }) as unknown;
+  const options = (Array.isArray(watched) ? (watched as unknown[]) : [])
+    .map((c) => (typeof c === "string" ? c.trim() : ""))
+    .filter((c, i, all) => c !== "" && all.indexOf(c) === i);
+
+  return (
+    <FormField
+      control={control}
+      name={"options.default" as never}
+      render={({ field }) => {
+        // Radix Select needs string | undefined; a default that's no longer a
+        // current option collapses to undefined (placeholder) here and is dropped
+        // on submit, so it never lingers as an invalid value.
+        const value =
+          typeof field.value === "string" && options.includes(field.value) ? field.value : undefined;
+        return (
+          <FormItem>
+            <FormLabel>Default value</FormLabel>
+            <div className="flex items-center gap-2">
+              <Select value={value} onValueChange={field.onChange} disabled={options.length === 0}>
+                <FormControl>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder={options.length === 0 ? "Add options first" : "No default"} />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {options.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {value ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => field.onChange(undefined)}
+                >
+                  Clear
+                </Button>
+              ) : null}
+            </div>
+            <FormDescription>Pre-selected when a new entry is created.</FormDescription>
+            <FormMessage />
+          </FormItem>
+        );
+      }}
+    />
+  );
+}
+
 function TypeOptions({
   type,
   control,
@@ -476,6 +609,13 @@ function TypeOptions({
             label="Allow multiple"
             description="Store an ordered list of entries instead of a single one."
           />
+        </>
+      ) : null}
+      {type === "select" ? (
+        <>
+          <ChoicesEditor control={control} />
+          <DefaultChoiceRow control={control} />
+          <TextRow control={control} name="options.placeholder" label="Placeholder" />
         </>
       ) : null}
       {help}
