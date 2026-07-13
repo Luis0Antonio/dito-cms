@@ -8,7 +8,7 @@ import { SlidersHorizontalIcon } from "lucide-react";
 
 import { EntryStatusBar } from "./entry-status-bar";
 import { FieldInput } from "./inputs/field-input";
-import { toEntryData, toFormValues, titleFromValue } from "./form-values";
+import { toEntryData, toFormValues } from "./form-values";
 
 import {
   createEntry,
@@ -77,9 +77,6 @@ function EntryEditorForm({
   const [confirm, setConfirm] = useState<null | "discard" | "unpublish" | "delete">(null);
 
   useUnsavedChangesGuard(isDirty && busy === null);
-
-  const titleValue = collection.titleField ? form.watch(collection.titleField) : undefined;
-  const liveTitle = titleFromValue(titleValue) || (isNew ? t("editor.newEntry") : t("editor.untitled"));
 
   const syncCaches = useCallback(
     (saved: EntryDetail) => {
@@ -233,7 +230,6 @@ function EntryEditorForm({
 
         <EntryStatusBar
           slug={collection.slug}
-          title={liveTitle}
           status={status}
           isNew={isNew}
           hideBack={hideBack}

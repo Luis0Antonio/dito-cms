@@ -126,7 +126,6 @@ export const en: Record<TranslationKey, string> = {
   "editor.empty.title": "No fields to fill in",
   "editor.empty.description": "Add fields to this collection's schema before authoring content.",
   "editor.editSchema": "Edit schema",
-  "editor.newEntry": "New entry",
   "editor.untitled": "Untitled",
   "editor.saveDraft.success": "Draft saved",
   "editor.publish.success": "Published",
@@ -155,7 +154,6 @@ export const en: Record<TranslationKey, string> = {
   // Entry status bar
   "statusBar.backAriaLabel": "Back to entries",
   "statusBar.new": "New",
-  "statusBar.untitled": "Untitled",
   "statusBar.unsavedChanges": "Unsaved changes",
   "statusBar.saved": "Saved {time}",
   "statusBar.saving": "Saving…",
