@@ -7,6 +7,7 @@ import type {
   EntryDetail,
   EntryListResult,
   EntryRef,
+  EntryUsage,
   ListEntriesParams,
 } from "@/shared/api-types";
 
@@ -20,8 +21,16 @@ export const entriesKeys = {
   picker: (slug: string, search: string) => [...entriesKeys.lists(slug), "picker", search] as const,
   detail: (id: string) => [...entriesKeys.all, "detail", id] as const,
   ref: (id: string) => [...entriesKeys.all, "ref", id] as const,
+  usage: (id: string) => [...entriesKeys.all, "usage", id] as const,
   singleton: (slug: string) => [...entriesKeys.all, "singleton", slug] as const,
 };
+
+/** Entries that reference this one — fetched on demand to warn before a delete. */
+export const entryUsageQueryOptions = (id: string) =>
+  queryOptions({
+    queryKey: entriesKeys.usage(id),
+    queryFn: () => api.get<EntryUsage>(`/api/admin/entries/${id}/usage`),
+  });
 
 /** Lightweight resolved reference target (title/slug/status) — powers the reference preview. */
 export const entryRefQueryOptions = (id: string) =>

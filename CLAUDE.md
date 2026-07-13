@@ -77,6 +77,13 @@ pattern pointed at `entries`. Preserve this design; do **not** regress it:
   collection's data, each referenced collection's `contentVersion`/`updatedAt` is folded into the
   referrer's delivery **ETags** (`referencedVersionSignature`) so a rename never serves a stale 304.
 - **Deletion is SET-NULL-like:** there is no DB cascade (it's JSON); a dangling id simply resolves to
-  `null` at delivery, with a pre-delete usage warning (`getEntryUsage`, `LIKE '%"<id>"%'` scan).
+  `null` at delivery, with a pre-delete usage warning (`getEntryUsage`, `LIKE '%"<id>"%'` scan) surfaced
+  in the delete dialog, the `GET /entries/:id/usage` route, and `delete_entry`'s `referencedBy`.
+- **Export/import preserves references** (bundle `version: 2`): each exported entry carries its `id`,
+  and `applyImport` runs a **global two-pass** — insert every collection's entries building an
+  `oldId→newId` map, then `remapImportedReferences` rewrites reference values through it. Import re-mints
+  ids, so a single pass would break A→B when B lands after A. A reference into a *skipped* collection has
+  no new id and stays a dangling source id (→ `null`), counted as `unresolvedReferences`. v1 bundles are
+  still accepted but their references don't carry over. Don't collapse this back to a per-collection loop.
 - `reference` is **not** enabled on product custom fields — `product_fields`' CHECK is left unwidened
   and `setProductFields`/`normalizeField` rejects it explicitly.

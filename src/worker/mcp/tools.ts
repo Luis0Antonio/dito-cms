@@ -23,6 +23,7 @@ import {
   type UpdateEntryPatch,
 } from "../services/entries";
 import { listMedia, uploadMediaFromUrl } from "../services/media";
+import { getEntryUsage } from "../services/references";
 import {
   isCommerceEnabled,
   setCommerceEnabled,
@@ -481,11 +482,24 @@ export const TOOLS: ToolDef[] = [
 
   defineTool({
     name: "delete_entry",
-    description: "Permanently delete an entry. If it was published, it is removed from delivery immediately.",
+    description:
+      "Permanently delete an entry. If it was published, it is removed from delivery immediately. " +
+      "Any reference fields in OTHER entries that point at this one will resolve to null after deletion; " +
+      "the result lists those referrers under `referencedBy` (computed before the delete) so nothing is silent.",
     schema: z.object({ id: z.string() }),
     handler: async (ctx, args) => {
+      // Compute reverse usage BEFORE deleting — afterwards the row (and the LIKE-scan hit) is gone.
+      const usage = await getEntryUsage(ctx.db, args.id);
       await deleteEntry(ctx.db, args.id);
-      return { ok: true, deleted: args.id };
+      return {
+        ok: true,
+        deleted: args.id,
+        referencedBy: usage.entries.map((e) => ({
+          id: e.entryId,
+          collection: e.collectionSlug,
+          title: e.title,
+        })),
+      };
     },
   }),
 

@@ -134,6 +134,11 @@ function ImportCard(): React.ReactElement {
           skipped: result.skipped.length,
         }),
       );
+      if (result.unresolvedReferences > 0) {
+        toast.warning(
+          t("settings.importExport.import.unresolvedRefs", { count: result.unresolvedReferences }),
+        );
+      }
       reset();
     },
     onError: (e) =>
@@ -244,6 +249,19 @@ function ImportCard(): React.ReactElement {
                   </TableBody>
                 </Table>
               </div>
+              {preview.hasReferences ? (
+                <p
+                  className={
+                    preview.version < 2
+                      ? "rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900"
+                      : "text-xs text-muted-foreground"
+                  }
+                >
+                  {preview.version < 2
+                    ? t("settings.importExport.import.refsNote.v1")
+                    : t("settings.importExport.import.refsNote.v2")}
+                </p>
+              ) : null}
               <div className="flex items-center gap-2">
                 <Button size="sm" onClick={startImport} disabled={applyMutation.isPending}>
                   <UploadIcon className="size-4" />

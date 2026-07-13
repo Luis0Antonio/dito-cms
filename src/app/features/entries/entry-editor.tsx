@@ -26,6 +26,7 @@ import { Form } from "@/app/components/ui/form";
 import { Button } from "@/app/components/ui/button";
 import { EmptyState } from "@/app/components/common/empty-state";
 import { ConfirmDialog } from "@/app/components/common/confirm-dialog";
+import { EntryUsageWarning } from "@/app/features/entries/entry-usage-warning";
 import { useUnsavedChangesGuard } from "@/app/hooks/use-unsaved-changes-guard";
 import type { CollectionDetail, EntryDetail } from "@/shared/api-types";
 
@@ -274,9 +275,14 @@ function EntryEditorForm({
         onOpenChange={(o) => !o && setConfirm(null)}
         title={t("editor.deleteEntry.title")}
         description={
-          status === "draft"
-            ? t("editor.deleteEntry.draftDesc")
-            : t("editor.deleteEntry.publishedDesc")
+          <span className="space-y-2">
+            <span className="block">
+              {status === "draft"
+                ? t("editor.deleteEntry.draftDesc")
+                : t("editor.deleteEntry.publishedDesc")}
+            </span>
+            <EntryUsageWarning entryId={entry?.id ?? ""} />
+          </span>
         }
         confirmLabel={t("editor.deleteEntry.confirm")}
         destructive

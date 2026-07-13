@@ -124,7 +124,7 @@ them live.
 | `update_entry` | Merge partial field values into an entry's draft. |
 | `publish_entry` | Validate against the publish schema and copy the draft to the live delivery API. |
 | `unpublish_entry` | Remove an entry from delivery; the draft is kept. |
-| `delete_entry` | Permanently delete an entry. |
+| `delete_entry` | Permanently delete an entry; returns the entries that referenced it (`referencedBy`). |
 
 ### Media
 
@@ -155,7 +155,8 @@ Enable with `set_store_enabled` first (or from **Settings**). These then become 
   automatically. The delivery API returns references **expanded** as `{ id, slug, title, collection }`
   (a deleted/unpublished target becomes `null`). A required reference to an unpublished target is
   blocked at publish. Configure it with `targetCollections` (allowed target slugs; `[]`/`["*"]` = any)
-  and `multiple`.
+  and `multiple`. Deleting an entry isn't silent: `delete_entry` returns the entries that referenced
+  it (under `referencedBy`) — those links resolve to `null` afterward.
 - **Draft → publish.** Edits save as drafts; the delivery API serves only the last published
   version. Required fields and bounds are enforced at publish time, not while drafting.
 - **Destructive changes are guarded.** Removing a field or changing its type needs
