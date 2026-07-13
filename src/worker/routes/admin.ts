@@ -4,6 +4,7 @@ import type { AppEnv } from "../lib/app";
 import { requireAuth } from "../middleware/require-auth";
 import { backupRouter } from "./admin-backup";
 import { collectionsRouter } from "./admin-collections";
+import { contactFormsRouter } from "./admin-contact-forms";
 import { deployHookRouter } from "./admin-deploy-hook";
 import { collectionEntriesRouter, entriesRouter } from "./admin-entries";
 import { mediaRouter } from "./admin-media";
@@ -22,6 +23,7 @@ adminRouter.get("/me", (c) =>
 
 adminRouter.route("/collections", collectionsRouter);
 adminRouter.route("/collections", collectionEntriesRouter);
+adminRouter.route("/contact-forms", contactFormsRouter);
 adminRouter.route("/entries", entriesRouter);
 adminRouter.route("/media", mediaRouter);
 adminRouter.route("/settings", settingsRouter);
