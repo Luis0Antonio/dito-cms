@@ -7,6 +7,14 @@ import type { EntryFieldInputProps } from "./types";
 import { Input } from "@/app/components/ui/input";
 import { Textarea } from "@/app/components/ui/textarea";
 import { Switch } from "@/app/components/ui/switch";
+import { Button } from "@/app/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/app/components/ui/select";
 import {
   FormControl,
   FormDescription,
@@ -139,6 +147,54 @@ function LinkFieldInput({ control, field }: EntryFieldInputProps): React.ReactEl
   );
 }
 
+function SelectFieldInput({ control, field }: EntryFieldInputProps): React.ReactElement {
+  const choices = Array.isArray(field.options.choices) ? field.options.choices : [];
+  const placeholder = field.options.placeholder || "Select an option";
+  const required = isFieldRequired(field);
+  return (
+    <FormField
+      control={control}
+      name={field.name}
+      render={({ field: rhf }) => {
+        // Radix Select uses "" for "nothing selected" (renders the placeholder);
+        // option values are always non-empty choices. Never feed it null/undefined.
+        const value = typeof rhf.value === "string" ? rhf.value : "";
+        return (
+          <FormItem>
+            <FormLabel>
+              {field.label}
+              <RequiredMark field={field} />
+            </FormLabel>
+            <div className="flex items-center gap-2">
+              <Select value={value} onValueChange={rhf.onChange}>
+                <FormControl>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder={placeholder} />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {choices.map((choice) => (
+                    <SelectItem key={choice} value={choice}>
+                      {choice}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {!required && value ? (
+                <Button type="button" variant="ghost" size="sm" onClick={() => rhf.onChange("")}>
+                  Clear
+                </Button>
+              ) : null}
+            </div>
+            {field.options.help ? <FormDescription>{field.options.help}</FormDescription> : null}
+            <FormMessage />
+          </FormItem>
+        );
+      }}
+    />
+  );
+}
+
 /** Render the right input for a field's type. */
 export function FieldInput(props: EntryFieldInputProps): React.ReactElement {
   switch (props.field.type) {
@@ -157,6 +213,8 @@ export function FieldInput(props: EntryFieldInputProps): React.ReactElement {
       return <LinkFieldInput {...props} />;
     case "reference":
       return <ReferenceFieldInput {...props} />;
+    case "select":
+      return <SelectFieldInput {...props} />;
   }
 }
 

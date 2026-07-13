@@ -18,8 +18,8 @@ structured content on D1. One package, one deploy.
 - **Self-hosted on your Cloudflare account** — content lives in your own D1 + R2. No
   third-party SaaS, no per-seat pricing.
 - **Visual content modeling** — define **collections** (many entries) and **singletons**
-  (exactly one) with eight field types (including entry-to-entry **references**) in a
-  drag-and-drop schema builder.
+  (exactly one) with nine field types (including entry-to-entry **references** and preset
+  **select** dropdowns) in a drag-and-drop schema builder.
 - **Draft → publish** — edits are saved as drafts; the delivery API only ever serves the
   last published version.
 - **Public delivery API** — read-only, CORS-open, ETag-cached JSON at `/api/v1/*`, ready
@@ -230,10 +230,12 @@ rm clients/acme.jsonc                   # drop the config
 ## Content model & authoring
 
 Define **collections** (many entries) and **singletons** (exactly one entry) in the schema
-builder. Each has **fields** of eight types: text, rich text, number, boolean, picture,
-video, link and **reference**. A `reference` field links entries to other entries (item →
-category, post → author, page → related pages): you pick the target entry rather than typing
-a name, and it stores a stable id. Authoring is **draft → publish**: edits are saved as
+builder. Each has **fields** of nine types: text, rich text, number, boolean, picture,
+video, link, **reference** and **select**. A `reference` field links entries to other entries
+(item → category, post → author, page → related pages): you pick the target entry rather than
+typing a name, and it stores a stable id. A `select` field offers a preset list of text options
+rendered as a dropdown, so editors choose one value instead of typing free text. Authoring is
+**draft → publish**: edits are saved as
 drafts, and the delivery API only ever serves the last published version. Required fields and
 bounds are enforced at publish time, not while drafting.
 

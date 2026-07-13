@@ -134,7 +134,7 @@ export function ProductSchemaPage(): React.ReactElement {
         initial={sheet.initial}
         existingNames={fields.map((f) => f.name)}
         availableCollections={[]}
-        excludeTypes={["reference"]}
+        excludeTypes={["reference", "select"]}
         submitting={setFieldsMutation.isPending}
         onApply={handleApply}
       />

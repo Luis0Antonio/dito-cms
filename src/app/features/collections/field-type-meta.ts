@@ -4,6 +4,7 @@ import {
   ImageIcon,
   LinkIcon,
   Link2Icon,
+  ListIcon,
   ToggleLeftIcon,
   TypeIcon,
   VideoIcon,
@@ -12,7 +13,7 @@ import {
 
 import { type FieldType } from "@/shared/field-types";
 
-// Client-only icon map for the 8 field types. Labels/descriptions live in the
+// Client-only icon map for the 9 field types. Labels/descriptions live in the
 // isomorphic field-types.ts (which can't import lucide).
 export const FIELD_TYPE_ICONS: Record<FieldType, LucideIcon> = {
   text: TypeIcon,
@@ -23,4 +24,5 @@ export const FIELD_TYPE_ICONS: Record<FieldType, LucideIcon> = {
   video: VideoIcon,
   link: LinkIcon,
   reference: Link2Icon,
+  select: ListIcon,
 };

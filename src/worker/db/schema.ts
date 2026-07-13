@@ -58,7 +58,7 @@ export type CollectionRow = typeof collections.$inferSelect;
 
 /**
  * One field on a collection. `name` is the API key (camelCase, immutable after
- * create). `type` is one of the 8 field types and is immutable too (delete + re-add
+ * create). `type` is one of the 9 field types and is immutable too (delete + re-add
  * to change). `options` is per-type JSON, validated server-side via field-types.ts.
  */
 export const fields = sqliteTable(
@@ -71,7 +71,7 @@ export const fields = sqliteTable(
     name: text("name").notNull(),
     label: text("label").notNull(),
     type: text("type", {
-      enum: ["text", "rich_text", "number", "boolean", "picture", "video", "link", "reference"],
+      enum: ["text", "rich_text", "number", "boolean", "picture", "video", "link", "reference", "select"],
     }).notNull(),
     /** Per-type options, JSON-encoded. `{}` when no options set. */
     options: text("options").notNull().default("{}"),
@@ -84,7 +84,7 @@ export const fields = sqliteTable(
     index("fields_collection_sort_idx").on(t.collectionId, t.sortOrder),
     check(
       "fields_type_chk",
-      sql`${t.type} in ('text', 'rich_text', 'number', 'boolean', 'picture', 'video', 'link', 'reference')`,
+      sql`${t.type} in ('text', 'rich_text', 'number', 'boolean', 'picture', 'video', 'link', 'reference', 'select')`,
     ),
   ],
 );

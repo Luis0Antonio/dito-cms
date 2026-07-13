@@ -29,8 +29,8 @@ interface FieldInput {
   options?: FieldOptions;
 }
 
-/** Product custom fields support every field type except `reference` (see normalizeField). */
-type ProductFieldType = Exclude<FieldType, "reference">;
+/** Product custom fields support every field type except `reference` and `select` (see normalizeField). */
+type ProductFieldType = Exclude<FieldType, "reference" | "select">;
 
 interface NormalizedField {
   name: string;
@@ -76,6 +76,16 @@ function normalizeField(input: FieldInput, index: number): NormalizedField {
   if (input.type === "reference") {
     throw validationError("References aren't supported on product fields yet", {
       [`${prefix}.type`]: "Reference fields can't be used on products",
+    });
+  }
+  // `select` has no technical barrier on products (its value is a plain string,
+  // validated by the shared field system exactly like `text`) — it's simply
+  // scoped to collections for this change. The `product_fields` CHECK was left
+  // unwidened, so reject here for a clean message; widening that CHECK + this
+  // guard is all it takes to enable it later.
+  if (input.type === "select") {
+    throw validationError("Select fields aren't supported on product fields yet", {
+      [`${prefix}.type`]: "Select fields can't be used on products",
     });
   }
   let options: FieldOptions;
