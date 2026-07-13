@@ -339,6 +339,78 @@ export interface DeliveryMedia {
   size: number;
 }
 
+// --- Contact forms (public submissions + admin management) -------------------
+
+export type ContactFormFieldType = "text" | "email" | "textarea" | "number" | "checkbox" | "select";
+
+export interface ContactFormFieldOptions {
+  choices?: string[];
+}
+
+export interface ContactFormFieldDTO {
+  id: string;
+  name: string;
+  label: string;
+  type: ContactFormFieldType;
+  required: boolean;
+  options: ContactFormFieldOptions;
+  sortOrder: number;
+}
+
+export interface ContactFormSummary {
+  id: string;
+  name: string;
+  publicKey: string;
+  enabled: boolean;
+  rateLimitMax: number;
+  rateLimitWindowSeconds: number;
+  fieldCount: number;
+  submissionCount: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ContactFormSubmissionDTO {
+  id: string;
+  data: Record<string, unknown>;
+  createdAt: number;
+  userAgent: string | null;
+}
+
+export interface ContactFormDetail extends ContactFormSummary {
+  fields: ContactFormFieldDTO[];
+  submissions: ContactFormSubmissionDTO[];
+}
+
+export interface ContactFormFieldInput {
+  name: string;
+  label: string;
+  type: ContactFormFieldType;
+  required?: boolean;
+  options?: ContactFormFieldOptions;
+}
+
+export interface CreateContactFormInput {
+  name: string;
+  fields?: ContactFormFieldInput[];
+}
+
+export interface UpdateContactFormInput {
+  name?: string;
+  enabled?: boolean;
+  rateLimitMax?: number;
+  rateLimitWindowSeconds?: number;
+}
+
+export interface SetContactFormFieldsInput {
+  fields: ContactFormFieldInput[];
+}
+
+export interface ContactFormSubmitResult {
+  ok: true;
+  submissionId: string;
+}
+
 // --- Media (Phase 4) ---------------------------------------------------------
 
 export type MediaKind = "image" | "video";

@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { ImageIcon, LayoutGridIcon, type LucideIcon, SettingsIcon, ShoppingBagIcon } from "lucide-react";
+import { ImageIcon, LayoutGridIcon, MailIcon, type LucideIcon, SettingsIcon, ShoppingBagIcon } from "lucide-react";
 
 import { UserMenu } from "./user-menu";
 
@@ -12,7 +12,7 @@ import { cn } from "@/app/lib/utils";
 
 interface NavItem {
   to: string;
-  labelKey: "nav.collections" | "nav.media" | "nav.store" | "nav.settings";
+  labelKey: "nav.collections" | "nav.contactForms" | "nav.media" | "nav.store" | "nav.settings";
   icon: LucideIcon;
 }
 
@@ -24,6 +24,7 @@ export function Sidebar(): React.ReactElement {
   // The Store nav is only shown when the commerce module is enabled.
   const nav: NavItem[] = [
     { to: "/collections", labelKey: "nav.collections", icon: LayoutGridIcon },
+    { to: "/contact-forms", labelKey: "nav.contactForms", icon: MailIcon },
     { to: "/media", labelKey: "nav.media", icon: ImageIcon },
     ...(settings?.commerceEnabled
       ? [{ to: "/store", labelKey: "nav.store", icon: ShoppingBagIcon } as const]

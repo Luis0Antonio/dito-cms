@@ -16,6 +16,7 @@ import { CollectionsListPage } from "./features/collections/collections-list-pag
 import { SchemaBuilderPage } from "./features/collections/builder/schema-builder-page";
 import { CollectionPage } from "./features/entries/collection-page";
 import { NewEntryPage, EditEntryPage } from "./features/entries/entry-editor-page";
+import { ContactFormsPage } from "./features/contact-forms/contact-forms-page";
 import { MediaPage } from "./features/media/media-page";
 import { StoreLayout } from "./features/store/store-layout";
 import { ProductsListPage } from "./features/store/products-list-page";
@@ -133,6 +134,13 @@ const mediaRoute = createRoute({
   path: "/media",
   component: MediaPage,
   staticData: { title: "Media" },
+});
+
+const contactFormsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/contact-forms",
+  component: ContactFormsPage,
+  staticData: { title: "Contact forms" },
 });
 
 // Commerce gate: the whole Store section is hidden unless the module is enabled.
@@ -257,6 +265,7 @@ export const routeTree = rootRoute.addChildren([
     collectionSchemaRoute,
     newEntryRoute,
     editEntryRoute,
+    contactFormsRoute,
     mediaRoute,
     storeRoute.addChildren([
       storeIndexRoute,
