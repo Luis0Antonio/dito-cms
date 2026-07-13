@@ -402,7 +402,9 @@ export const TOOLS: ToolDef[] = [
       "`collection`, the `fromField` string is matched (trimmed, case-insensitive) against the " +
       "titles in `targetCollection` and the resolved entry id is written into `toField` (which must " +
       "already exist as a reference field — create it first with set_collection_fields). Draft AND " +
-      "published copies are converted. Returns { converted, unmatched, ambiguous }: an ambiguous name " +
+      "published copies are converted; targets are NOT publish-checked, so a required reference onto an " +
+      "unpublished target delivers null until that target goes live (publish targets first). Returns " +
+      "{ converted, unmatched, ambiguous }: an ambiguous name " +
       "(two+ targets share it) is left unconverted, never guessed. Reconcile unmatched/ambiguous by " +
       "hand, then drop the old field with set_collection_fields(allowDestructive: true).",
     schema: z.object({

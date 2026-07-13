@@ -92,7 +92,10 @@ pattern pointed at `entries`. Preserve this design; do **not** regress it:
   published JSON directly (no re-publish — safe by construction, so `assertEntryRefs` is bypassed) and
   recomputes `published_etag` + bumps `contentVersion` when a live row moves. An **ambiguous** title
   (shared by 2+ targets) is reported, never auto-resolved; the caller fixes `unmatched`/`ambiguous` by
-  hand, then drops the old field with `setFields(allowDestructive)`. Don't reintroduce name matching as
-  the *runtime* link — this tool is a one-time backfill onto the id-based design.
+  hand, then drops the old field with `setFields(allowDestructive)`. Because it writes JSON directly it
+  **bypasses the publish-readiness block** (`assertEntryRefs` isn't run) — a *required* ref backfilled
+  onto an unpublished target delivers `null` until that target is published, so publish targets first.
+  Don't reintroduce name matching as the *runtime* link — this tool is a one-time backfill onto the
+  id-based design.
 - `reference` is **not** enabled on product custom fields — `product_fields`' CHECK is left unwidened
   and `setProductFields`/`normalizeField` rejects it explicitly.
