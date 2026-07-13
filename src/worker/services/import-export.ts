@@ -4,7 +4,7 @@ import type { DrizzleDb } from "../db/client";
 import { collections, entries, fields } from "../db/schema";
 import { badRequest } from "../lib/errors";
 import { createCollection, deleteCollection, updateCollection } from "./collections";
-import { importEntries } from "./entries";
+import { importEntries, remapImportedReferences, type RemapGroup } from "./entries";
 
 import { isFieldType, parseFieldOptions, type FieldOptions } from "@/shared/field-types";
 import type { FieldDefinition } from "@/shared/validation";
@@ -87,6 +87,7 @@ export async function exportProject(db: DrizzleDb, includeData: boolean): Promis
         .orderBy(asc(entries.sortOrder), asc(entries.createdAt))
         .all();
       out.entries = entryRows.map((e) => ({
+        id: e.id, // v2: correlation key so cross-entry references remap old→new on import
         slug: e.slug,
         locale: e.locale,
         draftData: parseJson(e.draftData),
@@ -104,7 +105,7 @@ export async function exportProject(db: DrizzleDb, includeData: boolean): Promis
 
   return {
     format: "dito-export",
-    version: 1,
+    version: 2,
     exportedAt: Date.now(),
     includesData: includeData,
     collections: exported,
@@ -121,7 +122,9 @@ function validateEnvelope(doc: unknown): ExportDocument {
   if (typeof doc !== "object" || doc === null) throw badRequest("Invalid import file");
   const d = doc as Record<string, unknown>;
   if (d.format !== "dito-export") throw badRequest("Not a Dito export file");
-  if (d.version !== 1) throw badRequest(`Unsupported export version "${String(d.version)}"`);
+  if (d.version !== 1 && d.version !== 2) {
+    throw badRequest(`Unsupported export version "${String(d.version)}"`);
+  }
   if (!Array.isArray(d.collections)) throw badRequest("Export is missing a collections array");
   d.collections.forEach((raw, i) => validateCollection(raw, i));
   return d as unknown as ExportDocument;
@@ -171,7 +174,14 @@ export async function previewImport(db: DrizzleDb, doc: unknown): Promise<Import
     entryCount: c.entries?.length ?? 0,
   }));
 
-  return { includesData: document.includesData, collections: previews };
+  const hasReferences = document.collections.some((c) => c.fields.some((f) => f.type === "reference"));
+
+  return {
+    includesData: document.includesData,
+    version: document.version,
+    hasReferences,
+    collections: previews,
+  };
 }
 
 // --- apply -------------------------------------------------------------------
@@ -187,13 +197,19 @@ async function uniqueSlug(db: DrizzleDb, base: string): Promise<string> {
   }
 }
 
-/** Create a collection (+ fields + entries) from one bundle entry under the given slug. */
+/**
+ * Create a collection (+ fields + entries) from one bundle entry under the given slug. Merges
+ * this collection's entries into the shared `idMap` (source→new id) and, if it has any reference
+ * fields, returns a RemapGroup so applyImport's second pass can rewrite those references once the
+ * whole map is built.
+ */
 async function createImportedCollection(
   db: DrizzleDb,
   col: ExportedCollection,
   slug: string,
   userId: string | undefined,
-): Promise<void> {
+  idMap: Map<string, string>,
+): Promise<RemapGroup | null> {
   const detail = await createCollection(db, {
     slug,
     name: col.name,
@@ -211,14 +227,18 @@ async function createImportedCollection(
     titleField: col.titleField ?? null,
   });
 
-  if (col.entries && col.entries.length > 0) {
-    const defs: FieldDefinition[] = detail.fields.map((f) => ({
-      name: f.name,
-      type: f.type,
-      options: f.options,
-    }));
-    await importEntries(db, detail.id, defs, col.entries, userId);
-  }
+  if (!col.entries || col.entries.length === 0) return null;
+
+  const defs: FieldDefinition[] = detail.fields.map((f) => ({
+    name: f.name,
+    type: f.type,
+    options: f.options,
+  }));
+  const inserted = await importEntries(db, detail.id, defs, col.entries, userId);
+  for (const [oldId, newId] of inserted.idMap) idMap.set(oldId, newId);
+
+  const refDefs = defs.filter((d) => d.type === "reference");
+  return refDefs.length > 0 ? { refDefs, newIds: inserted.newIds } : null;
 }
 
 export async function applyImport(
@@ -231,11 +251,28 @@ export async function applyImport(
   const existing = await db.select({ slug: collections.slug }).from(collections).all();
   const existingSlugs = new Set(existing.map((r) => r.slug));
 
-  const result: ImportResult = { created: [], renamed: [], overwritten: [], skipped: [] };
+  const result: ImportResult = {
+    created: [],
+    renamed: [],
+    overwritten: [],
+    skipped: [],
+    unresolvedReferences: 0,
+  };
 
+  // A reference A→B fails if B is imported after A, so ids are re-minted first (pass 1) across
+  // ALL collections into one shared map, then references are rewritten (pass 2). The map spans
+  // created/renamed/overwritten collections alike; references into a *skipped* collection have no
+  // new id to point at and stay unresolved (→ null at delivery), counted in unresolvedReferences.
+  const idMap = new Map<string, string>();
+  const groups: RemapGroup[] = [];
+  const collect = (g: RemapGroup | null): void => {
+    if (g) groups.push(g);
+  };
+
+  // Pass 1 — create collections + insert entries.
   for (const col of document.collections) {
     if (!existingSlugs.has(col.slug)) {
-      await createImportedCollection(db, col, col.slug, userId);
+      collect(await createImportedCollection(db, col, col.slug, userId, idMap));
       existingSlugs.add(col.slug);
       result.created.push(col.slug);
       continue;
@@ -246,16 +283,19 @@ export async function applyImport(
       result.skipped.push(col.slug);
     } else if (resolution === "rename") {
       const slug = await uniqueSlug(db, col.slug);
-      await createImportedCollection(db, col, slug, userId);
+      collect(await createImportedCollection(db, col, slug, userId, idMap));
       existingSlugs.add(slug);
       result.renamed.push({ from: col.slug, to: slug });
     } else {
       // overwrite — drop the existing collection (cascades fields + entries) then recreate.
       await deleteCollection(db, col.slug, col.slug);
-      await createImportedCollection(db, col, col.slug, userId);
+      collect(await createImportedCollection(db, col, col.slug, userId, idMap));
       result.overwritten.push(col.slug);
     }
   }
+
+  // Pass 2 — rewrite reference values through the completed id map.
+  result.unresolvedReferences = await remapImportedReferences(db, idMap, groups);
 
   return result;
 }

@@ -77,6 +77,25 @@ pattern pointed at `entries`. Preserve this design; do **not** regress it:
   collection's data, each referenced collection's `contentVersion`/`updatedAt` is folded into the
   referrer's delivery **ETags** (`referencedVersionSignature`) so a rename never serves a stale 304.
 - **Deletion is SET-NULL-like:** there is no DB cascade (it's JSON); a dangling id simply resolves to
-  `null` at delivery, with a pre-delete usage warning (`getEntryUsage`, `LIKE '%"<id>"%'` scan).
+  `null` at delivery, with a pre-delete usage warning (`getEntryUsage`, `LIKE '%"<id>"%'` scan) surfaced
+  in the delete dialog, the `GET /entries/:id/usage` route, and `delete_entry`'s `referencedBy`.
+- **Export/import preserves references** (bundle `version: 2`): each exported entry carries its `id`,
+  and `applyImport` runs a **global two-pass** — insert every collection's entries building an
+  `oldId→newId` map, then `remapImportedReferences` rewrites reference values through it. Import re-mints
+  ids, so a single pass would break A→B when B lands after A. A reference into a *skipped* collection has
+  no new id and stays a dangling source id (→ `null`), counted as `unresolvedReferences`. v1 bundles are
+  still accepted but their references don't carry over. Don't collapse this back to a per-collection loop.
+- **Legacy string→reference migration** is `migrateStringFieldToReference` (`services/references.ts`),
+  exposed as `POST /api/admin/collections/:slug/migrate-reference` and the `migrate_string_field_to_reference`
+  MCP tool. It matches each entry's old name-string (trimmed, case-insensitive) against the target
+  collection's **title**, writes the resolved id into the new reference field in **both** draft and
+  published JSON directly (no re-publish — safe by construction, so `assertEntryRefs` is bypassed) and
+  recomputes `published_etag` + bumps `contentVersion` when a live row moves. An **ambiguous** title
+  (shared by 2+ targets) is reported, never auto-resolved; the caller fixes `unmatched`/`ambiguous` by
+  hand, then drops the old field with `setFields(allowDestructive)`. Because it writes JSON directly it
+  **bypasses the publish-readiness block** (`assertEntryRefs` isn't run) — a *required* ref backfilled
+  onto an unpublished target delivers `null` until that target is published, so publish targets first.
+  Don't reintroduce name matching as the *runtime* link — this tool is a one-time backfill onto the
+  id-based design.
 - `reference` is **not** enabled on product custom fields — `product_fields`' CHECK is left unwidened
   and `setProductFields`/`normalizeField` rejects it explicitly.

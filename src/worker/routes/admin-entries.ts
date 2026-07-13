@@ -16,6 +16,7 @@ import {
   unpublishEntry,
   updateEntry,
 } from "../services/entries";
+import { getEntryUsage } from "../services/references";
 
 import type { EntryData, EntryStatus } from "@/shared/api-types";
 
@@ -94,6 +95,12 @@ export const entriesRouter = new Hono<AppEnv>();
 entriesRouter.get("/:id/ref", async (c) => {
   const ref = await getEntryRef(c.get("db"), c.req.param("id"));
   return c.json({ ref });
+});
+
+// Which other entries reference this one — powers the pre-delete "N entries link here" warning
+// (mirrors GET /media/:id/usage). Referrers keep resolving that field to null once it's gone.
+entriesRouter.get("/:id/usage", async (c) => {
+  return c.json(await getEntryUsage(c.get("db"), c.req.param("id")));
 });
 
 entriesRouter.get("/:id", async (c) => {

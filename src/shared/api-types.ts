@@ -518,6 +518,18 @@ export interface EntryUsage {
   entries: EntryUsageEntry[];
 }
 
+/**
+ * Result of migrating a string-name field into a `reference` field
+ * (migrateStringFieldToReference). `converted` counts entries whose old string matched
+ * exactly one target; `unmatched` and `ambiguous` list the rows a human must reconcile by
+ * hand before the old string field is dropped (an ambiguous title is never auto-resolved).
+ */
+export interface ReferenceMigrationResult {
+  converted: number;
+  unmatched: Array<{ entryId: string; value: string }>;
+  ambiguous: Array<{ entryId: string; value: string; candidateIds: string[] }>;
+}
+
 /** Public schema descriptor (collections + field defs) for typed delivery clients. */
 export interface DeliveryCollectionSchema {
   slug: string;
@@ -544,6 +556,12 @@ export interface ExportedField {
  * preserved so the derived status (draft/published/changed) is reproduced on import.
  */
 export interface ExportedEntry {
+  /**
+   * Source entry id — present in v2 bundles only. Import re-mints every id, so this is
+   * the correlation key that lets the two-pass remap rewrite reference values to point at
+   * the freshly-imported copies. Absent in v1 bundles (references there can't carry over).
+   */
+  id?: string;
   slug: string | null;
   locale: string;
   draftData: EntryData;
@@ -568,10 +586,14 @@ export interface ExportedCollection {
   entries?: ExportedEntry[];
 }
 
-/** A versioned, whole-project export envelope. */
+/**
+ * A versioned, whole-project export envelope. v2 adds a per-entry `id` so cross-entry
+ * references survive an import (remapped old→new); v1 bundles are still accepted but their
+ * references don't carry over.
+ */
 export interface ExportDocument {
   format: "dito-export";
-  version: 1;
+  version: 1 | 2;
   exportedAt: number;
   includesData: boolean;
   collections: ExportedCollection[];
@@ -593,6 +615,10 @@ export interface ImportPreviewCollection {
 /** The server's read of an uploaded bundle: what it contains and which slugs conflict. */
 export interface ImportPreview {
   includesData: boolean;
+  /** Bundle format version (2 preserves entry references across import; 1 does not). */
+  version: number;
+  /** Whether any collection in the bundle defines a `reference` field — gates the carry-over note. */
+  hasReferences: boolean;
   collections: ImportPreviewCollection[];
 }
 
@@ -608,6 +634,12 @@ export interface ImportResult {
   renamed: { from: string; to: string }[];
   overwritten: string[];
   skipped: string[];
+  /**
+   * Reference values that couldn't be remapped to an imported entry — the target lives
+   * outside the bundle or in a skipped collection, so it stays a source id and resolves to
+   * `null` at delivery (counted on draft data to avoid double-counting the published copy).
+   */
+  unresolvedReferences: number;
 }
 
 // --- Commerce: catalog (Store module, Phase 1) ------------------------------

@@ -39,6 +39,7 @@ import { StatusBadge } from "@/app/components/common/status-badge";
 import { EmptyState } from "@/app/components/common/empty-state";
 import { ErrorState } from "@/app/components/common/error-state";
 import { ConfirmDialog } from "@/app/components/common/confirm-dialog";
+import { EntryUsageWarning } from "@/app/features/entries/entry-usage-warning";
 import { Button } from "@/app/components/ui/button";
 import { Input } from "@/app/components/ui/input";
 import { Skeleton } from "@/app/components/ui/skeleton";
@@ -385,9 +386,14 @@ export function EntriesListPage({ collection }: { collection: CollectionDetail }
         onOpenChange={(o) => !o && setDeleteTarget(null)}
         title={t("entries.delete.confirm.title", { title: deleteTarget?.title ?? t("editor.untitled") })}
         description={
-          deleteTarget?.status === "draft"
-            ? t("entries.delete.confirm.draftDesc")
-            : t("entries.delete.confirm.publishedDesc")
+          <span className="space-y-2">
+            <span className="block">
+              {deleteTarget?.status === "draft"
+                ? t("entries.delete.confirm.draftDesc")
+                : t("entries.delete.confirm.publishedDesc")}
+            </span>
+            <EntryUsageWarning entryId={deleteTarget?.id ?? ""} />
+          </span>
         }
         confirmLabel={t("entries.delete.confirm.button")}
         destructive

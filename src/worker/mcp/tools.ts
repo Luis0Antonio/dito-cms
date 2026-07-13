@@ -23,6 +23,7 @@ import {
   type UpdateEntryPatch,
 } from "../services/entries";
 import { listMedia, uploadMediaFromUrl } from "../services/media";
+import { getEntryUsage, migrateStringFieldToReference } from "../services/references";
 import {
   isCommerceEnabled,
   setCommerceEnabled,
@@ -395,6 +396,48 @@ export const TOOLS: ToolDef[] = [
   }),
 
   defineTool({
+    name: "migrate_string_field_to_reference",
+    description:
+      "Backfill a reference field from a legacy 'link by name' text field. For each entry in " +
+      "`collection`, the `fromField` string is matched (trimmed, case-insensitive) against the " +
+      "titles in `targetCollection` and the resolved entry id is written into `toField` (which must " +
+      "already exist as a reference field — create it first with set_collection_fields). Draft AND " +
+      "published copies are converted; targets are NOT publish-checked, so a required reference onto an " +
+      "unpublished target delivers null until that target goes live (publish targets first). Returns " +
+      "{ converted, unmatched, ambiguous }: an ambiguous name " +
+      "(two+ targets share it) is left unconverted, never guessed. Reconcile unmatched/ambiguous by " +
+      "hand, then drop the old field with set_collection_fields(allowDestructive: true).",
+    schema: z.object({
+      collection: z.string().describe("Slug of the collection whose entries hold the name strings."),
+      fromField: z.string().describe("Existing field holding the target's name/title (read as a string)."),
+      toField: z.string().describe("The reference field to populate. Must already exist on the collection."),
+      targetCollection: z
+        .string()
+        .describe("Slug of the collection the names point at; its title field is matched. Must have a title field set."),
+    }),
+    handler: async (ctx, args) => {
+      const { result } = await migrateStringFieldToReference(ctx.db, {
+        collectionSlug: args.collection,
+        fromField: args.fromField,
+        toField: args.toField,
+        targetCollectionSlug: args.targetCollection,
+      });
+      // Cap the per-row lists so a large collection can't blow the tool-result token budget;
+      // the counts stay exact and the admin API returns the full lists if needed.
+      const CAP = 50;
+      const truncated = result.unmatched.length > CAP || result.ambiguous.length > CAP;
+      return {
+        converted: result.converted,
+        unmatchedCount: result.unmatched.length,
+        ambiguousCount: result.ambiguous.length,
+        unmatched: result.unmatched.slice(0, CAP),
+        ambiguous: result.ambiguous.slice(0, CAP),
+        ...(truncated ? { note: `Lists truncated to the first ${CAP}; use the admin migrate-reference endpoint for all rows.` } : {}),
+      };
+    },
+  }),
+
+  defineTool({
     name: "list_entries",
     description: "List a collection's entries (compact: id, slug, derived status, title preview). Supports status filter, search, and pagination.",
     schema: z.object({
@@ -481,11 +524,24 @@ export const TOOLS: ToolDef[] = [
 
   defineTool({
     name: "delete_entry",
-    description: "Permanently delete an entry. If it was published, it is removed from delivery immediately.",
+    description:
+      "Permanently delete an entry. If it was published, it is removed from delivery immediately. " +
+      "Any reference fields in OTHER entries that point at this one will resolve to null after deletion; " +
+      "the result lists those referrers under `referencedBy` (computed before the delete) so nothing is silent.",
     schema: z.object({ id: z.string() }),
     handler: async (ctx, args) => {
+      // Compute reverse usage BEFORE deleting — afterwards the row (and the LIKE-scan hit) is gone.
+      const usage = await getEntryUsage(ctx.db, args.id);
       await deleteEntry(ctx.db, args.id);
-      return { ok: true, deleted: args.id };
+      return {
+        ok: true,
+        deleted: args.id,
+        referencedBy: usage.entries.map((e) => ({
+          id: e.entryId,
+          collection: e.collectionSlug,
+          title: e.title,
+        })),
+      };
     },
   }),
 
