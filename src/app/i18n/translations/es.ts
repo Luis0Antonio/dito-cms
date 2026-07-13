@@ -124,7 +124,6 @@ export const es = {
   "editor.empty.title": "Sin campos para completar",
   "editor.empty.description": "Agrega campos al esquema de esta colección antes de crear contenido.",
   "editor.editSchema": "Editar esquema",
-  "editor.newEntry": "Nueva entrada",
   "editor.untitled": "Sin título",
   "editor.saveDraft.success": "Borrador guardado",
   "editor.publish.success": "Publicado",
@@ -153,7 +152,6 @@ export const es = {
   // Entry status bar
   "statusBar.backAriaLabel": "Volver a las entradas",
   "statusBar.new": "Nueva",
-  "statusBar.untitled": "Sin título",
   "statusBar.unsavedChanges": "Cambios sin guardar",
   "statusBar.saved": "Guardado {time}",
   "statusBar.saving": "Guardando…",
