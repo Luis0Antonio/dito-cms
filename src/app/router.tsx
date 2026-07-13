@@ -136,11 +136,22 @@ const mediaRoute = createRoute({
   staticData: { title: "Media" },
 });
 
+// Forms gate: the contact-forms section is hidden unless the module is enabled.
+const ensureFormsEnabled = async ({
+  context,
+}: {
+  context: RouterContext;
+}): Promise<void> => {
+  const settings = await context.queryClient.ensureQueryData(projectSettingsQueryOptions);
+  if (!settings.formsEnabled) throw redirect({ to: "/collections" });
+};
+
 const contactFormsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/contact-forms",
   component: ContactFormsPage,
   staticData: { title: "Contact forms" },
+  beforeLoad: ensureFormsEnabled,
 });
 
 // Commerce gate: the whole Store section is hidden unless the module is enabled.

@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 
 import type { AppEnv } from "../lib/app";
-import { badRequest } from "../lib/errors";
+import { badRequest, notFound } from "../lib/errors";
+import { isFormsEnabled } from "../services/settings";
 import {
   createContactForm,
   deleteContactForm,
@@ -20,6 +21,15 @@ import type {
 } from "@/shared/api-types";
 
 export const contactFormsRouter = new Hono<AppEnv>();
+
+// Module gate: behave as if these routes don't exist when the Forms module is disabled
+// (mirrors the Store module gate in admin-store.ts). Auth is already applied upstream.
+contactFormsRouter.use("*", async (c, next) => {
+  if (!(await isFormsEnabled(c.get("db")))) {
+    throw notFound("The Forms module is not enabled");
+  }
+  await next();
+});
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;

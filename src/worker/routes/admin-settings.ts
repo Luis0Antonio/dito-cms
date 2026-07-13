@@ -2,7 +2,14 @@ import { Hono } from "hono";
 
 import type { AppEnv } from "../lib/app";
 import type { DrizzleDb } from "../db/client";
-import { getSetting, setSetting, isCommerceEnabled, setCommerceEnabled } from "../services/settings";
+import {
+  getSetting,
+  setSetting,
+  isCommerceEnabled,
+  setCommerceEnabled,
+  isFormsEnabled,
+  setFormsEnabled,
+} from "../services/settings";
 import { badRequest } from "../lib/errors";
 
 import { APP_NAME, MAX_LOGO_DATA_URL_BYTES } from "@/shared/constants";
@@ -27,6 +34,7 @@ async function readSettings(db: DrizzleDb): Promise<ProjectSettings> {
     projectName: await readProjectName(db),
     logo: await readLogo(db),
     commerceEnabled: await isCommerceEnabled(db),
+    formsEnabled: await isFormsEnabled(db),
   };
 }
 
@@ -64,6 +72,9 @@ settingsRouter.patch("/", async (c) => {
   }
   if (typeof body.commerceEnabled === "boolean") {
     await setCommerceEnabled(db, body.commerceEnabled);
+  }
+  if (typeof body.formsEnabled === "boolean") {
+    await setFormsEnabled(db, body.formsEnabled);
   }
   return c.json(await readSettings(db));
 });

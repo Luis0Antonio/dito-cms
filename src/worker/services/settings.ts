@@ -33,6 +33,24 @@ export async function setCommerceEnabled(db: DrizzleDb, enabled: boolean): Promi
   await setSetting(db, COMMERCE_ENABLED_KEY, enabled ? "true" : "false");
 }
 
+// --- Contact forms module toggle ---------------------------------------------
+// The optional Forms (contact forms) module is gated by a single boolean under this key,
+// exactly like the commerce toggle above. OFF by default so instances that don't need forms
+// are entirely unaffected. Admin routes, the public submission endpoint, the MCP forms toggle
+// and the SPA nav all consult this flag.
+
+export const FORMS_ENABLED_KEY = "forms_enabled";
+
+/** Whether the optional Forms (contact forms) module is enabled. Defaults to false. */
+export async function isFormsEnabled(db: DrizzleDb): Promise<boolean> {
+  return (await getSetting(db, FORMS_ENABLED_KEY)) === "true";
+}
+
+/** Enable or disable the contact forms module. */
+export async function setFormsEnabled(db: DrizzleDb, enabled: boolean): Promise<void> {
+  await setSetting(db, FORMS_ENABLED_KEY, enabled ? "true" : "false");
+}
+
 function generateSecret(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);

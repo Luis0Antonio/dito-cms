@@ -23,7 +23,12 @@ import {
   type UpdateEntryPatch,
 } from "../services/entries";
 import { listMedia, uploadMediaFromUrl } from "../services/media";
-import { isCommerceEnabled, setCommerceEnabled } from "../services/settings";
+import {
+  isCommerceEnabled,
+  setCommerceEnabled,
+  isFormsEnabled,
+  setFormsEnabled,
+} from "../services/settings";
 import {
   createProduct,
   deleteProduct,
@@ -202,6 +207,7 @@ export const TOOLS: ToolDef[] = [
       const mediaList = await listMedia(ctx.db, { limit: 1 });
       const entriesTotal = cols.reduce((sum, c) => sum + c.entryCount, 0);
       const commerceEnabled = await isCommerceEnabled(ctx.db);
+      const formsEnabled = await isFormsEnabled(ctx.db);
       return {
         name: APP_NAME,
         version: APP_VERSION,
@@ -218,6 +224,10 @@ export const TOOLS: ToolDef[] = [
         // Optional Store module. When enabled, the store_* tools below become available and the
         // catalog is served (uncached) under /api/commerce/*. Toggle with set_store_enabled.
         store: { enabled: commerceEnabled },
+        // Optional Forms (contact forms) module. When enabled, the admin forms UI and the public
+        // submission endpoint (/api/v1/contact-forms/{key}/submissions) become active. OFF by
+        // default. Toggle with set_forms_enabled.
+        forms: { enabled: formsEnabled },
         notes: [
           "Collections hold many entries; singletons hold exactly one (auto-created on first edit/publish).",
           "Entries are draft → publish. Delivery serves only published data — set publish:true on create_entry, or call publish_entry.",
@@ -240,6 +250,21 @@ export const TOOLS: ToolDef[] = [
     handler: async (ctx, args) => {
       await setCommerceEnabled(ctx.db, args.enabled);
       return { store: { enabled: args.enabled } };
+    },
+  }),
+
+  defineTool({
+    name: "set_forms_enabled",
+    description:
+      "Enable or disable the optional Forms (contact forms) module. When enabled, the admin " +
+      "forms UI is shown and the public submission endpoint (/api/v1/contact-forms/{key}/submissions) " +
+      "accepts submissions. OFF by default. This tool is always available regardless of the toggle.",
+    schema: z.object({
+      enabled: z.boolean().describe("true to enable the Forms module, false to disable it."),
+    }),
+    handler: async (ctx, args) => {
+      await setFormsEnabled(ctx.db, args.enabled);
+      return { forms: { enabled: args.enabled } };
     },
   }),
 

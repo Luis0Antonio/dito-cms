@@ -295,6 +295,10 @@ export const en: Record<TranslationKey, string> = {
   "settings.general.languageHint": "Language of the admin interface.",
   "settings.general.theme": "Theme",
   "settings.general.themeHint": "Appearance of the admin interface.",
+  "settings.general.forms": "Forms",
+  "settings.general.formsEnable": "Enable the Forms module",
+  "settings.general.formsHint":
+    "Turn on forms to build contact forms and collect submissions. While it's off, your content is unaffected.",
   "settings.general.store": "Store",
   "settings.general.storeEnable": "Enable the Store module",
   "settings.general.storeHint":

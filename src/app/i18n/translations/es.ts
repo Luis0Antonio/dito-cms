@@ -293,6 +293,10 @@ export const es = {
   "settings.general.languageHint": "Idioma de la interfaz de administración.",
   "settings.general.theme": "Tema",
   "settings.general.themeHint": "Apariencia de la interfaz de administración.",
+  "settings.general.forms": "Formularios",
+  "settings.general.formsEnable": "Habilitar el módulo de formularios",
+  "settings.general.formsHint":
+    "Activa los formularios para crear formularios de contacto y recibir envíos. Mientras esté desactivado, tu contenido no se ve afectado.",
   "settings.general.store": "Tienda",
   "settings.general.storeEnable": "Habilitar el módulo de tienda",
   "settings.general.storeHint":
