@@ -1,12 +1,15 @@
-import { and, asc, eq, inArray, like, ne, or } from "drizzle-orm";
+import { and, asc, eq, inArray, like, ne, or, sql } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 
 import type { DrizzleDb } from "../db/client";
-import { collections, entries } from "../db/schema";
-import { validationError } from "../lib/errors";
+import { collections, entries, fields } from "../db/schema";
+import { hashString } from "../lib/hash";
+import { notFound, validationError } from "../lib/errors";
 
 import { D1_IN_CHUNK } from "@/shared/constants";
+import { parseFieldOptions, type FieldOptions } from "@/shared/field-types";
 import type { FieldDefinition } from "@/shared/validation";
-import type { EntryData, EntryUsage } from "@/shared/api-types";
+import type { EntryData, EntryUsage, ReferenceMigrationResult } from "@/shared/api-types";
 
 // A reference field stores a target entry id (or an ordered id[] when `multiple`)
 // in the entry JSON — the media pattern (services/media.ts) pointed at `entries`.
@@ -221,4 +224,226 @@ export async function getEntryUsage(db: DrizzleDb, id: string): Promise<EntryUsa
       title: titleFromJson(r.draftData, r.titleField),
     })),
   };
+}
+
+// --- string → reference migration (WS7) --------------------------------------
+// Converts the legacy "link by name string" pattern into real references: for each
+// source entry, the fromField string is matched (trimmed, case-insensitive) against the
+// target collection's titles, and the resolved target id is written into the new reference
+// field. It writes JSON directly (like remapImportedReferences) rather than routing through
+// updateEntry — that's the only way to convert `published_data` without a re-publish, and the
+// written id is safe by construction (it's an existing entry in an allowed target collection,
+// so assertEntryRefs would pass anyway). Ambiguous names are reported, never auto-resolved.
+
+function parseEntryJson(text: string): EntryData {
+  try {
+    return JSON.parse(text) as EntryData;
+  } catch {
+    return {};
+  }
+}
+
+interface CollectionMeta {
+  id: string;
+  titleField: string | null;
+  fields: { name: string; type: FieldDefinition["type"]; options: FieldOptions }[];
+}
+
+/** Load a collection's id, title field and parsed field defs by slug (local to avoid a cycle). */
+async function loadCollectionMeta(db: DrizzleDb, slug: string): Promise<CollectionMeta> {
+  const col = await db
+    .select({ id: collections.id, titleField: collections.titleField })
+    .from(collections)
+    .where(eq(collections.slug, slug))
+    .get();
+  if (!col) throw notFound(`Collection "${slug}" not found`);
+  const rows = await db
+    .select({ name: fields.name, type: fields.type, options: fields.options })
+    .from(fields)
+    .where(eq(fields.collectionId, col.id))
+    .orderBy(asc(fields.sortOrder))
+    .all();
+  return {
+    id: col.id,
+    titleField: col.titleField,
+    fields: rows.map((r) => {
+      let options: FieldOptions = {};
+      try {
+        options = parseFieldOptions(r.type, JSON.parse(r.options));
+      } catch {
+        options = {};
+      }
+      return { name: r.name, type: r.type, options };
+    }),
+  };
+}
+
+/** The title used to match a target entry, or null when it carries no usable title value. */
+function matchableTitle(data: EntryData, titleField: string): string | null {
+  const v = data[titleField];
+  if (typeof v === "string" && v.trim()) return v.trim();
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  return null;
+}
+
+/** Whether a stored reference value already equals the one we'd write (skip redundant updates). */
+function referenceValueEquals(current: unknown, next: string | string[]): boolean {
+  if (Array.isArray(next)) {
+    return Array.isArray(current) && current.length === next.length && current.every((v, i) => v === next[i]);
+  }
+  return current === next;
+}
+
+export interface MigrateStringFieldToReferenceInput {
+  /** Slug of the collection whose entries hold the string links. */
+  collectionSlug: string;
+  /** Existing field holding the target's name/title (read as a string). */
+  fromField: string;
+  /** The `reference` field to populate (must already exist on the collection). */
+  toField: string;
+  /** Slug of the collection the names point at; its title field is matched. */
+  targetCollectionSlug: string;
+}
+
+/**
+ * Backfill a `reference` field from a legacy name-string field. See the module comment above.
+ * Returns the result plus `publishedChanged` — true only when a row that already had a
+ * published version was modified — so the caller knows whether to fire a deploy hook (the
+ * collection's contentVersion is bumped here in the same batch when so).
+ */
+export async function migrateStringFieldToReference(
+  db: DrizzleDb,
+  input: MigrateStringFieldToReferenceInput,
+): Promise<{ result: ReferenceMigrationResult; publishedChanged: boolean }> {
+  const { collectionSlug, fromField, toField, targetCollectionSlug } = input;
+  if (fromField === toField) {
+    throw validationError("fromField and toField must be different fields", {
+      toField: "Choose a field other than fromField",
+    });
+  }
+
+  const source = await loadCollectionMeta(db, collectionSlug);
+  const fromDef = source.fields.find((f) => f.name === fromField);
+  if (!fromDef) {
+    throw validationError(`Field "${fromField}" not found on "${collectionSlug}"`, { fromField: "Unknown field" });
+  }
+  const toDef = source.fields.find((f) => f.name === toField);
+  if (!toDef) {
+    throw validationError(`Field "${toField}" not found on "${collectionSlug}"`, { toField: "Unknown field" });
+  }
+  if (toDef.type !== "reference") {
+    throw validationError(`Field "${toField}" is not a reference field`, { toField: "Must be a reference field" });
+  }
+
+  const target = await loadCollectionMeta(db, targetCollectionSlug);
+  const titleField = target.titleField;
+  if (!titleField) {
+    throw validationError(
+      `Target collection "${targetCollectionSlug}" has no title field to match names against — set one first`,
+      { targetCollection: "Target collection needs a title field" },
+    );
+  }
+
+  // The destination reference must actually allow this target collection, or the migration
+  // would write values assertEntryRefs rejects on the next edit. [] / ["*"] = any collection.
+  const allowed = toDef.options.targetCollections;
+  if (allowed && allowed.length > 0 && !allowed.includes("*") && !allowed.includes(targetCollectionSlug)) {
+    throw validationError(
+      `Reference field "${toField}" does not allow targets in "${targetCollectionSlug}"`,
+      { targetCollection: `Allowed target collections: ${allowed.join(", ")}` },
+    );
+  }
+  const multiple = toDef.options.multiple === true;
+
+  // Index the target collection by (lower-cased, trimmed) draft title — the same title the
+  // admin picker shows — mapping to the id(s) that share it. A shared title → ambiguous.
+  const targetRows = await db
+    .select({ id: entries.id, draftData: entries.draftData })
+    .from(entries)
+    .where(eq(entries.collectionId, target.id))
+    .all();
+  const idsByTitle = new Map<string, string[]>();
+  for (const row of targetRows) {
+    const title = matchableTitle(parseEntryJson(row.draftData), titleField);
+    if (title === null) continue;
+    const key = title.toLowerCase();
+    const list = idsByTitle.get(key) ?? [];
+    list.push(row.id);
+    idsByTitle.set(key, list);
+  }
+
+  const sourceRows = await db
+    .select({ id: entries.id, draftData: entries.draftData, publishedData: entries.publishedData })
+    .from(entries)
+    .where(eq(entries.collectionId, source.id))
+    .all();
+
+  const result: ReferenceMigrationResult = { converted: 0, unmatched: [], ambiguous: [] };
+  const updates: BatchItem<"sqlite">[] = [];
+  let publishedChanged = false;
+
+  for (const row of sourceRows) {
+    const draft = parseEntryJson(row.draftData);
+    const raw = draft[fromField];
+    if (typeof raw !== "string" || !raw.trim()) continue; // nothing to convert on this entry
+    const value = raw.trim();
+
+    const matches = idsByTitle.get(value.toLowerCase()) ?? [];
+    if (matches.length === 0) {
+      result.unmatched.push({ entryId: row.id, value });
+      continue;
+    }
+    if (matches.length > 1) {
+      result.ambiguous.push({ entryId: row.id, value, candidateIds: matches });
+      continue; // never silently pick one
+    }
+
+    result.converted += 1;
+    const refValue: string | string[] = multiple ? [matches[0]] : matches[0];
+
+    const published = row.publishedData === null ? null : parseEntryJson(row.publishedData);
+    let changed = false;
+    if (!referenceValueEquals(draft[toField], refValue)) {
+      draft[toField] = refValue;
+      changed = true;
+    }
+    if (published && !referenceValueEquals(published[toField], refValue)) {
+      published[toField] = refValue;
+      changed = true;
+      publishedChanged = true; // a live row changed → delivery must be invalidated
+    }
+    if (!changed) continue; // already migrated (idempotent re-run)
+
+    // Recompute publishedEtag from the exact bytes stored — item/singleton ETags derive from
+    // it (not contentVersion), so a stale etag would serve a 304 with the old data forever.
+    const publishedJson = published === null ? null : JSON.stringify(published);
+    updates.push(
+      db
+        .update(entries)
+        .set({
+          draftData: JSON.stringify(draft),
+          publishedData: publishedJson,
+          publishedEtag: publishedJson === null ? null : hashString(publishedJson),
+        })
+        .where(eq(entries.id, row.id)),
+    );
+  }
+
+  // Bump the source collection's contentVersion so delivery *list* ETags change too — but only
+  // when live content actually moved (a draft-only conversion is invisible to delivery).
+  if (publishedChanged) {
+    updates.push(
+      db
+        .update(collections)
+        .set({ contentVersion: sql`${collections.contentVersion} + 1`, updatedAt: Date.now() })
+        .where(eq(collections.id, source.id)),
+    );
+  }
+
+  for (let i = 0; i < updates.length; i += D1_IN_CHUNK) {
+    const slice = updates.slice(i, i + D1_IN_CHUNK);
+    await db.batch(slice as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
+  }
+
+  return { result, publishedChanged };
 }
