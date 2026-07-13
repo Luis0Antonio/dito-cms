@@ -10,3 +10,6 @@ dist/
 worker-configuration.d.ts
 .vite/
 .dito-credentials
+
+clients/
+
