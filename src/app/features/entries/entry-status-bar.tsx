@@ -16,7 +16,6 @@ import type { EntryStatus } from "@/shared/api-types";
 
 export interface EntryStatusBarProps {
   slug: string;
-  title: string;
   status: EntryStatus;
   isNew: boolean;
   hideBack?: boolean;
@@ -47,8 +46,7 @@ export function EntryStatusBar(props: EntryStatusBarProps): React.ReactElement {
           </Button>
         )}
 
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="truncate text-sm font-medium">{props.title || t("statusBar.untitled")}</span>
+        <div className="flex items-center gap-2">
           {props.isNew ? (
             <span className="text-xs text-muted-foreground">{t("statusBar.new")}</span>
           ) : (
