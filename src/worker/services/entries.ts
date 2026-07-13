@@ -1,4 +1,4 @@
-import { and, asc, count, eq, isNull, like, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNull, like, sql, type SQL } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { nanoid } from "nanoid";
 
@@ -14,15 +14,18 @@ import {
 import { hashString } from "../lib/hash";
 import { badRequest, conflict, notFound, validationError } from "../lib/errors";
 import { assertMediaRefs } from "./media";
+import { assertEntryRefs, resolveReferenceValues } from "./references";
 import { regenerateRichText, seedDefaults, validateFieldData } from "./field-data";
 
 import { parseFieldOptions, type FieldOptions } from "@/shared/field-types";
 import { type FieldDefinition } from "@/shared/validation";
 import { isValidSlug } from "@/shared/slug";
+import { D1_IN_CHUNK } from "@/shared/constants";
 import type {
   EntryData,
   EntryDetail,
   EntryListResult,
+  EntryRef,
   EntryStatus,
   EntrySummary,
   ExportedEntry,
@@ -36,12 +39,16 @@ export interface CreateEntryInput {
   data?: EntryData;
   slug?: string | null;
   publish?: boolean;
+  /** Resolve reference values given as a target entry *slug* to its id (MCP/REST convenience). */
+  resolveReferences?: boolean;
 }
 
 export interface UpdateEntryPatch {
   data?: EntryData;
   slug?: string | null;
   sortOrder?: number;
+  /** Resolve reference values given as a target entry *slug* to its id (MCP/REST convenience). */
+  resolveReferences?: boolean;
 }
 
 interface LoadedCollection {
@@ -249,6 +256,28 @@ export async function getEntryDetail(db: DrizzleDb, id: string): Promise<EntryDe
   return mapDetail(await findEntry(db, id));
 }
 
+/** A lightweight resolved reference target (id → title/slug/collection/status) for pickers. */
+export async function getEntryRef(db: DrizzleDb, id: string): Promise<EntryRef> {
+  const row = await db
+    .select({
+      entry: entries,
+      collectionSlug: collections.slug,
+      titleField: collections.titleField,
+    })
+    .from(entries)
+    .innerJoin(collections, eq(entries.collectionId, collections.id))
+    .where(eq(entries.id, id))
+    .get();
+  if (!row) throw notFound("Entry not found");
+  return {
+    id: row.entry.id,
+    title: titlePreview(parseJson(row.entry.draftData), row.titleField),
+    slug: row.entry.slug,
+    collectionSlug: row.collectionSlug,
+    status: deriveStatus(row.entry),
+  };
+}
+
 export async function countEntriesByCollection(db: DrizzleDb): Promise<Map<string, number>> {
   const rows = await db
     .select({ collectionId: entries.collectionId, n: count() })
@@ -290,10 +319,14 @@ export async function createEntry(
     throw conflict("This singleton already has an entry");
   }
 
-  const merged = { ...seedDefaults(defs), ...(input.data ?? {}) };
+  const inputData = input.resolveReferences
+    ? await resolveReferenceValues(db, defs, input.data ?? {})
+    : input.data ?? {};
+  const merged = { ...seedDefaults(defs), ...inputData };
   const normalized = regenerateRichText(defs, merged);
   const draftData = validate(defs, normalized, "draft");
   await assertMediaRefs(db, defs, draftData);
+  await assertEntryRefs(db, defs, draftData);
   const slugValue = normalizeEntrySlug(input.slug);
 
   const now = Date.now();
@@ -305,6 +338,7 @@ export async function createEntry(
   let publishedAt: number | null = null;
   if (input.publish) {
     const publishedData = validate(defs, normalized, "publish");
+    await assertEntryRefs(db, defs, publishedData, { requirePublishedTargets: true });
     publishedJson = JSON.stringify(publishedData);
     publishedEtag = hashString(publishedJson);
     publishedAt = now;
@@ -354,10 +388,14 @@ export async function updateEntry(
   const values: Partial<typeof entries.$inferInsert> = { updatedAt: now, updatedBy: userId ?? null };
 
   if (patch.data !== undefined) {
-    const merged = { ...parseJson(row.draftData), ...patch.data };
+    const patchData = patch.resolveReferences
+      ? await resolveReferenceValues(db, defs, patch.data)
+      : patch.data;
+    const merged = { ...parseJson(row.draftData), ...patchData };
     const normalized = regenerateRichText(defs, merged);
     const draft = validate(defs, normalized, "draft");
     await assertMediaRefs(db, defs, draft);
+    await assertEntryRefs(db, defs, draft);
     values.draftData = JSON.stringify(draft);
     values.draftUpdatedAt = now;
   }
@@ -385,6 +423,7 @@ export async function publishEntry(
   const normalized = regenerateRichText(defs, parseJson(row.draftData));
   const publishedData = validate(defs, normalized, "publish");
   await assertMediaRefs(db, defs, publishedData);
+  await assertEntryRefs(db, defs, publishedData, { requirePublishedTargets: true });
   const publishedJson = JSON.stringify(publishedData);
   const etag = hashString(publishedJson);
   const now = Date.now();
@@ -485,13 +524,26 @@ export async function reorderEntries(db: DrizzleDb, slug: string, ids: string[])
   await db.batch(statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
 }
 
+/** What an import batch produced: the source→new id map (v2 correlation) + every new id. */
+export interface ImportEntriesResult {
+  /** oldSourceId → newId, only for entries that carried an `id` (v2 bundles). */
+  idMap: Map<string, string>;
+  /** New ids of ALL inserted rows (v1 + v2), so the remap pass can re-read them. */
+  newIds: string[];
+}
+
 /**
  * Bulk-insert entries from an export bundle into a freshly-created collection.
  *
  * Reuses the same lifecycle internals as createEntry: rich_text HTML is regenerated
  * server-side (no stored XSS) and both draft and published payloads are schema-validated.
- * Media references are deliberately NOT checked (`assertMediaRefs` is skipped) — exports
- * carry media ids by reference and the target instance may not hold those assets.
+ * Media references are deliberately NOT checked (`assertMediaRefs` is skipped) — exports carry
+ * media ids by reference and the target instance may not hold those assets. Entry references
+ * (`assertEntryRefs`) are likewise skipped: ids are re-minted here, so a source reference value
+ * would fail an existence check at insert time. Instead, references are fixed up in a SECOND
+ * pass (`remapImportedReferences`) once every collection's entries exist and the global
+ * old→new id map is complete — this function returns that map (v2 bundles carry a source `id`;
+ * v1 bundles don't, so their references can't carry over and stay as source ids → null).
  *
  * All timestamps, slug and sortOrder are preserved from the export so the derived status
  * (draft/published/changed) is reproduced. Runs as one D1 batch.
@@ -502,10 +554,16 @@ export async function importEntries(
   defs: FieldDefinition[],
   exported: ExportedEntry[],
   userId: string | undefined,
-): Promise<number> {
-  if (exported.length === 0) return 0;
+): Promise<ImportEntriesResult> {
+  const idMap = new Map<string, string>();
+  const newIds: string[] = [];
+  if (exported.length === 0) return { idMap, newIds };
 
   const statements: BatchItem<"sqlite">[] = exported.map((e) => {
+    const newId = nanoid();
+    newIds.push(newId);
+    if (typeof e.id === "string" && e.id) idMap.set(e.id, newId);
+
     const draftData = validate(defs, regenerateRichText(defs, e.draftData ?? {}), "draft");
 
     let publishedJson: string | null = null;
@@ -519,7 +577,7 @@ export async function importEntries(
     }
 
     return db.insert(entries).values({
-      id: nanoid(),
+      id: newId,
       collectionId,
       slug: normalizeEntrySlug(e.slug),
       locale: e.locale ?? "",
@@ -544,7 +602,115 @@ export async function importEntries(
     }
     throw err;
   }
-  return exported.length;
+  return { idMap, newIds };
+}
+
+/** Rewrite one reference field's value in place through the id map. */
+function remapReferenceField(
+  data: EntryData,
+  field: string,
+  idMap: Map<string, string>,
+): { changed: boolean; unresolved: number } {
+  const value = data[field];
+  let changed = false;
+  let unresolved = 0;
+  const mapOne = (v: unknown): unknown => {
+    if (typeof v !== "string" || !v) return v;
+    const mapped = idMap.get(v);
+    if (mapped === undefined) {
+      unresolved += 1; // target outside the bundle / a skipped collection → leave as-is (null at delivery)
+      return v;
+    }
+    if (mapped !== v) changed = true;
+    return mapped;
+  };
+  if (Array.isArray(value)) {
+    const next = value.map(mapOne);
+    if (changed) data[field] = next;
+  } else if (typeof value === "string" && value) {
+    data[field] = mapOne(value);
+  }
+  return { changed, unresolved };
+}
+
+/** One imported collection's reference fields + the new ids of the rows just inserted for it. */
+export interface RemapGroup {
+  refDefs: FieldDefinition[];
+  newIds: string[];
+}
+
+/**
+ * Second pass of a v2 import: rewrite every reference value through the global old→new id map
+ * so cross-entry links point at the freshly-imported copies (import re-mints every id). Returns
+ * the count of reference values that could NOT be mapped — their target lives outside the bundle
+ * or in a skipped collection, so they keep their source id and resolve to `null` at delivery,
+ * exactly like a deleted target. Counted on draft data only (the published copy usually mirrors
+ * it, so counting both would double-report the same broken link).
+ *
+ * Re-reads the inserted rows (rather than threading validated JSON out of `importEntries`),
+ * chunking both the read and the UPDATE batch under D1's statement cap.
+ */
+export async function remapImportedReferences(
+  db: DrizzleDb,
+  idMap: Map<string, string>,
+  groups: RemapGroup[],
+): Promise<number> {
+  if (idMap.size === 0) return 0;
+
+  let unresolved = 0;
+  const updates: BatchItem<"sqlite">[] = [];
+
+  for (const group of groups) {
+    if (group.refDefs.length === 0 || group.newIds.length === 0) continue;
+    for (let i = 0; i < group.newIds.length; i += D1_IN_CHUNK) {
+      const chunk = group.newIds.slice(i, i + D1_IN_CHUNK);
+      const rows = await db
+        .select({
+          id: entries.id,
+          draftData: entries.draftData,
+          publishedData: entries.publishedData,
+        })
+        .from(entries)
+        .where(inArray(entries.id, chunk))
+        .all();
+
+      for (const row of rows) {
+        const draft = parseJson(row.draftData);
+        const published = row.publishedData === null ? null : parseJson(row.publishedData);
+        let changed = false;
+
+        for (const def of group.refDefs) {
+          const d = remapReferenceField(draft, def.name, idMap);
+          changed = d.changed || changed;
+          unresolved += d.unresolved; // count on draft only
+          if (published) {
+            const p = remapReferenceField(published, def.name, idMap);
+            changed = p.changed || changed;
+          }
+        }
+
+        if (changed) {
+          const publishedJson = published === null ? null : JSON.stringify(published);
+          updates.push(
+            db
+              .update(entries)
+              .set({
+                draftData: JSON.stringify(draft),
+                publishedData: publishedJson,
+                publishedEtag: publishedJson === null ? null : hashString(publishedJson),
+              })
+              .where(eq(entries.id, row.id)),
+          );
+        }
+      }
+    }
+  }
+
+  for (let i = 0; i < updates.length; i += D1_IN_CHUNK) {
+    const slice = updates.slice(i, i + D1_IN_CHUNK);
+    await db.batch(slice as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
+  }
+  return unresolved;
 }
 
 /** Idempotent get-or-create of a singleton's sole entry. */

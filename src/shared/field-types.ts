@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { richTextDocSchema } from "./richtext";
 
-// Single source of truth for the 7 field types. Isomorphic: no React, no Hono,
+// Single source of truth for the 8 field types. Isomorphic: no React, no Hono,
 // no worker imports. Each type carries:
 //   - optionsSchema    : validates the per-type options the user configures
 //   - buildValueSchema : (options, mode) => zod schema for a stored value
@@ -20,6 +20,7 @@ export const FIELD_TYPE_LIST = [
   "picture",
   "video",
   "link",
+  "reference",
 ] as const;
 
 export type FieldType = (typeof FIELD_TYPE_LIST)[number];
@@ -39,6 +40,10 @@ export interface FieldOptions {
   min?: number;
   max?: number;
   allowRelative?: boolean;
+  /** reference: allowed target collection slugs. [] / ["*"] = any (polymorphic). */
+  targetCollections?: string[];
+  /** reference: false → one id (string); true → ordered id[]. */
+  multiple?: boolean;
 }
 
 export interface FieldTypeDef {
@@ -209,6 +214,24 @@ const linkOptionsSchema: z.ZodType<FieldOptions> = z.object({
   allowRelative: z.boolean().optional(),
 });
 
+// --- reference ---------------------------------------------------------------
+
+// Stored value is a target entry id (or an ordered id[] when `multiple`).
+// Existence + target-collection are checked server-side (async, batched) at
+// write time by assertEntryRefs — not expressible in zod, exactly like media.
+function referenceValueSchema(options: FieldOptions, _mode: ValueMode): z.ZodTypeAny {
+  const id = z.string().min(1);
+  return options.multiple ? z.array(id) : id;
+}
+
+const referenceOptionsSchema: z.ZodType<FieldOptions> = z.object({
+  required,
+  help,
+  // Slugs of the collections this field may point at. Empty / ["*"] = any.
+  targetCollections: z.array(z.string().trim().min(1)).optional().default([]),
+  multiple: z.boolean().optional(),
+});
+
 // --- registry ----------------------------------------------------------------
 
 export const FIELD_TYPES: Record<FieldType, FieldTypeDef> = {
@@ -274,6 +297,15 @@ export const FIELD_TYPES: Record<FieldType, FieldTypeDef> = {
     optionsSchema: linkOptionsSchema,
     buildValueSchema: linkValueSchema,
     resolveDefault: () => undefined,
+  },
+  reference: {
+    type: "reference",
+    label: "Reference",
+    description: "A link to one or more entries in another collection.",
+    hasRequired: true,
+    optionsSchema: referenceOptionsSchema,
+    buildValueSchema: referenceValueSchema,
+    resolveDefault: (o) => (o.multiple ? [] : undefined),
   },
 };
 
