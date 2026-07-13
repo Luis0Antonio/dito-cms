@@ -24,7 +24,12 @@ export function toFieldDefinition(name: string, type: FieldType, rawOptions: unk
 function requireValue(value: z.ZodTypeAny): z.ZodTypeAny {
   return z
     .any()
-    .refine((v) => v !== undefined && v !== null && v !== "", { message: "This field is required" })
+    .refine(
+      // An empty array counts as absent too, so a required `multiple` reference (the only
+      // array-valued field type) can't publish with zero targets.
+      (v) => v !== undefined && v !== null && v !== "" && !(Array.isArray(v) && v.length === 0),
+      { message: "This field is required" },
+    )
     .pipe(value);
 }
 

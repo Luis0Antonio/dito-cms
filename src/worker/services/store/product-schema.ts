@@ -29,10 +29,13 @@ interface FieldInput {
   options?: FieldOptions;
 }
 
+/** Product custom fields support every field type except `reference` (see normalizeField). */
+type ProductFieldType = Exclude<FieldType, "reference">;
+
 interface NormalizedField {
   name: string;
   label: string;
-  type: FieldType;
+  type: ProductFieldType;
   options: FieldOptions;
 }
 
@@ -65,6 +68,15 @@ function normalizeField(input: FieldInput, index: number): NormalizedField {
   }
   if (!isFieldType(input.type)) {
     throw validationError(`Unknown field type "${input.type}"`, { [`${prefix}.type`]: "Unknown field type" });
+  }
+  // `reference` is a valid FieldType but points at entries, not products; it is
+  // not supported on product custom fields in v1. Reject explicitly — otherwise
+  // isFieldType() above would let it through (and the product_fields CHECK,
+  // which was left unwidened, would reject the insert with a cryptic error).
+  if (input.type === "reference") {
+    throw validationError("References aren't supported on product fields yet", {
+      [`${prefix}.type`]: "Reference fields can't be used on products",
+    });
   }
   let options: FieldOptions;
   try {

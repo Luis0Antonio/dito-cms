@@ -133,6 +133,8 @@ export function ProductSchemaPage(): React.ReactElement {
         onOpenChange={(next) => setSheet((s) => ({ ...s, open: next }))}
         initial={sheet.initial}
         existingNames={fields.map((f) => f.name)}
+        availableCollections={[]}
+        excludeTypes={["reference"]}
         submitting={setFieldsMutation.isPending}
         onApply={handleApply}
       />

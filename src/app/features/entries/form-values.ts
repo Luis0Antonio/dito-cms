@@ -21,6 +21,15 @@ export function toFormValues(fields: FieldDTO[], data: EntryData): FormValues {
       case "video":
         out[field.name] = typeof value === "string" ? value : null;
         break;
+      case "reference":
+        out[field.name] = field.options.multiple
+          ? Array.isArray(value)
+            ? value.filter((v): v is string => typeof v === "string")
+            : []
+          : typeof value === "string"
+            ? value
+            : null;
+        break;
       case "link": {
         const obj = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
         out[field.name] = {
@@ -55,6 +64,15 @@ export function toEntryData(fields: FieldDTO[], values: FormValues): EntryData {
       case "picture":
       case "video":
         out[field.name] = typeof value === "string" && value ? value : null;
+        break;
+      case "reference":
+        out[field.name] = field.options.multiple
+          ? Array.isArray(value)
+            ? value.filter((v): v is string => typeof v === "string" && v.length > 0)
+            : []
+          : typeof value === "string" && value
+            ? value
+            : null;
         break;
       case "link": {
         const obj = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;

@@ -56,6 +56,15 @@ interface NormalizedField {
   options: FieldOptions;
 }
 
+/** The persisted `multiple` flag of a stored field (false when unparseable/unset). */
+function storedMultiple(row: FieldRow): boolean {
+  try {
+    return (JSON.parse(row.options) as FieldOptions).multiple === true;
+  } catch {
+    return false;
+  }
+}
+
 function mapField(row: FieldRow): FieldDTO {
   let options: FieldOptions = {};
   try {
@@ -300,6 +309,22 @@ export async function setFields(
         throw conflict(
           `Changing the type of "${field.name}" would invalidate existing content. Re-run with allowDestructive to proceed.`,
           { [`fields.${normalized.indexOf(field)}.type`]: "Type is immutable; delete and re-add instead" },
+        );
+      }
+      updated.push(field.name);
+    } else if (
+      field.type === "reference" &&
+      storedMultiple(prev) !== (field.options.multiple ?? false)
+    ) {
+      // Same type, but toggling a reference's `multiple` reshapes stored values
+      // (id string ↔ id[]) → destructive, exactly like a type change.
+      if (!input.allowDestructive) {
+        throw conflict(
+          `Switching "${field.name}" between single and multiple would invalidate existing content. Re-run with allowDestructive to proceed.`,
+          {
+            [`fields.${normalized.indexOf(field)}.options.multiple`]:
+              "Toggling multiple reshapes stored values; re-run with allowDestructive",
+          },
         );
       }
       updated.push(field.name);

@@ -8,6 +8,7 @@ import {
   deleteEntry,
   discardDraft,
   getEntryDetail,
+  getEntryRef,
   getOrCreateSingletonEntry,
   listEntries,
   publishEntry,
@@ -88,6 +89,12 @@ collectionEntriesRouter.get("/:slug/singleton", async (c) => {
 // --- entry-scoped: /entries/:id/... ------------------------------------------
 
 export const entriesRouter = new Hono<AppEnv>();
+
+// Lightweight resolved reference target (title/slug/status) for the reference field preview.
+entriesRouter.get("/:id/ref", async (c) => {
+  const ref = await getEntryRef(c.get("db"), c.req.param("id"));
+  return c.json({ ref });
+});
 
 entriesRouter.get("/:id", async (c) => {
   const detail = await getEntryDetail(c.get("db"), c.req.param("id"));

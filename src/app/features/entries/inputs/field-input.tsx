@@ -1,6 +1,7 @@
 import { FieldFrame, RequiredMark, isFieldRequired } from "./field-frame";
 import { RichTextFieldInput } from "./rich-text-input";
 import { MediaFieldInput } from "./media-input";
+import { ReferenceFieldInput } from "./reference-input";
 import type { EntryFieldInputProps } from "./types";
 
 import { Input } from "@/app/components/ui/input";
@@ -154,6 +155,8 @@ export function FieldInput(props: EntryFieldInputProps): React.ReactElement {
       return <MediaFieldInput {...props} />;
     case "link":
       return <LinkFieldInput {...props} />;
+    case "reference":
+      return <ReferenceFieldInput {...props} />;
   }
 }
 

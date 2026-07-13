@@ -34,6 +34,7 @@ import { DeleteCollectionDialog } from "../delete-collection-dialog";
 import {
   collectionDetailQueryOptions,
   collectionsKeys,
+  collectionsListQueryOptions,
   deleteCollection,
   setFields,
 } from "@/app/api/collections";
@@ -58,6 +59,7 @@ export function SchemaBuilderPage(): React.ReactElement {
   const { t } = useI18n();
 
   const { data: collection, isPending, isError, error, refetch } = useQuery(collectionDetailQueryOptions(slug));
+  const { data: allCollections } = useQuery(collectionsListQueryOptions);
 
   const [sheet, setSheet] = useState<{ open: boolean; initial: FieldDTO | null }>({ open: false, initial: null });
   const [deleteFieldTarget, setDeleteFieldTarget] = useState<FieldDTO | null>(null);
@@ -218,6 +220,7 @@ export function SchemaBuilderPage(): React.ReactElement {
         onOpenChange={(next) => setSheet((s) => ({ ...s, open: next }))}
         initial={sheet.initial}
         existingNames={fields.map((f) => f.name)}
+        availableCollections={(allCollections ?? []).map((c) => ({ slug: c.slug, name: c.name }))}
         submitting={setFieldsMutation.isPending}
         onApply={handleApply}
       />

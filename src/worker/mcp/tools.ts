@@ -133,7 +133,8 @@ const entryData = z
   .record(z.string(), z.unknown())
   .describe(
     "Field values keyed by field name. rich_text accepts a plain string or a TipTap JSON doc; " +
-      "picture/video take a media id; link takes { url, label?, newTab? }.",
+      "picture/video take a media id; link takes { url, label?, newTab? }; reference takes a target " +
+      "entry id or slug (an array when multiple:true).",
   );
 
 function toFieldInputs(
@@ -191,6 +192,12 @@ const FIELD_TYPE_REFERENCE = [
   { type: "picture", stores: "media id of an image (use list_media or upload_media_from_url)", options: "required, help" },
   { type: "video", stores: "media id of a video", options: "required, help" },
   { type: "link", stores: "{ url, label?, newTab? }", options: "allowRelative, required, help" },
+  {
+    type: "reference",
+    stores:
+      "a target entry id — or an array of ids when multiple:true. You may pass a target entry SLUG instead of an id; it is resolved automatically. Delivery returns it expanded as { id, slug, title, collection }.",
+    options: "targetCollections (allowed target collection slugs; [] or [\"*\"] = any), multiple, required, help",
+  },
 ];
 
 // --- tools -------------------------------------------------------------------
@@ -233,6 +240,7 @@ export const TOOLS: ToolDef[] = [
           "Entries are draft → publish. Delivery serves only published data — set publish:true on create_entry, or call publish_entry.",
           "rich_text accepts a plain string (wrapped into paragraphs) or a TipTap JSON document.",
           "picture/video fields store a media id — obtain one via list_media or upload_media_from_url.",
+          "reference fields link entries across collections: pass a target entry id or slug (an array when multiple). Delivery returns them expanded with the target's title; a required reference to an unpublished target is blocked at publish.",
         ],
       };
     },
@@ -432,7 +440,7 @@ export const TOOLS: ToolDef[] = [
       const e = await createEntry(
         ctx.db,
         args.collection,
-        { data: args.data as EntryData, slug: args.slug, publish: args.publish },
+        { data: args.data as EntryData, slug: args.slug, publish: args.publish, resolveReferences: true },
         ctx.userId,
       );
       return summarizeEntry(e);
@@ -449,7 +457,7 @@ export const TOOLS: ToolDef[] = [
       sortOrder: z.number().optional(),
     }),
     handler: async (ctx, args) => {
-      const patch: UpdateEntryPatch = {};
+      const patch: UpdateEntryPatch = { resolveReferences: true };
       if (args.data !== undefined) patch.data = args.data as EntryData;
       if (args.slug !== undefined) patch.slug = args.slug;
       if (args.sortOrder !== undefined) patch.sortOrder = args.sortOrder;

@@ -147,9 +147,15 @@ Enable with `set_store_enabled` first (or from **Settings**). These then become 
 
 - **Collections** hold many entries; **singletons** hold exactly one (auto-created on first
   edit/publish). `slug` and `type` are immutable after creation.
-- **Fields** are one of seven types — `text`, `rich_text`, `number`, `boolean`, `picture`,
-  `video`, `link`. `get_cms_info` returns what each stores and its per-type options. `rich_text`
-  accepts a plain string or a TipTap JSON doc; `picture`/`video` store a media id.
+- **Fields** are one of eight types — `text`, `rich_text`, `number`, `boolean`, `picture`,
+  `video`, `link`, `reference`. `get_cms_info` returns what each stores and its per-type options.
+  `rich_text` accepts a plain string or a TipTap JSON doc; `picture`/`video` store a media id.
+- **`reference`** links entries across collections: it stores a target entry id (or an array of
+  ids when `multiple`), and you may pass a target entry **slug** instead of an id — it's resolved
+  automatically. The delivery API returns references **expanded** as `{ id, slug, title, collection }`
+  (a deleted/unpublished target becomes `null`). A required reference to an unpublished target is
+  blocked at publish. Configure it with `targetCollections` (allowed target slugs; `[]`/`["*"]` = any)
+  and `multiple`.
 - **Draft → publish.** Edits save as drafts; the delivery API serves only the last published
   version. Required fields and bounds are enforced at publish time, not while drafting.
 - **Destructive changes are guarded.** Removing a field or changing its type needs

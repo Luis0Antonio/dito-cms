@@ -18,7 +18,8 @@ structured content on D1. One package, one deploy.
 - **Self-hosted on your Cloudflare account** — content lives in your own D1 + R2. No
   third-party SaaS, no per-seat pricing.
 - **Visual content modeling** — define **collections** (many entries) and **singletons**
-  (exactly one) with seven field types in a drag-and-drop schema builder.
+  (exactly one) with eight field types (including entry-to-entry **references**) in a
+  drag-and-drop schema builder.
 - **Draft → publish** — edits are saved as drafts; the delivery API only ever serves the
   last published version.
 - **Public delivery API** — read-only, CORS-open, ETag-cached JSON at `/api/v1/*`, ready
@@ -229,10 +230,12 @@ rm clients/acme.jsonc                   # drop the config
 ## Content model & authoring
 
 Define **collections** (many entries) and **singletons** (exactly one entry) in the schema
-builder. Each has **fields** of seven types: text, rich text, number, boolean, picture,
-video and link. Authoring is **draft → publish**: edits are saved as drafts, and the
-delivery API only ever serves the last published version. Required fields and bounds are
-enforced at publish time, not while drafting.
+builder. Each has **fields** of eight types: text, rich text, number, boolean, picture,
+video, link and **reference**. A `reference` field links entries to other entries (item →
+category, post → author, page → related pages): you pick the target entry rather than typing
+a name, and it stores a stable id. Authoring is **draft → publish**: edits are saved as
+drafts, and the delivery API only ever serves the last published version. Required fields and
+bounds are enforced at publish time, not while drafting.
 
 Seed a demo model (hero + features + testimonials) to see it end to end:
 
@@ -259,6 +262,25 @@ GET /api/v1/content/:slug/:idOrSlug             # one published entry by id or s
 
 Filter ops: `eq, ne, lt, lte, gt, gte, contains`. Responses carry `ETag` +
 `Cache-Control`; send `If-None-Match` for a `304`.
+
+**Reference fields** are **expanded** in delivery responses. A stored target id becomes an
+object (an array of them when the field is `multiple`), and a deleted or unpublished target
+becomes `null`:
+
+```jsonc
+"category": { "id": "V1St…", "slug": "fruit", "title": "Fruit", "collection": "categories" }
+```
+
+`title` comes from the target's published title field. Expansion is one level deep in v1 (no
+nested target `data`). Filter by a reference with the **target's id**:
+
+```
+GET /api/v1/content/items?filter[category][eq]=<fruitId>     # single reference
+GET /api/v1/content/posts?filter[tags][eq]=<tagId>           # multiple reference: contains
+```
+
+Renaming a referenced entry busts the referrer's `ETag`, so a `304` never serves a stale
+expanded title.
 
 ### Consuming from Astro
 

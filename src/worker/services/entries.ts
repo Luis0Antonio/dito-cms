@@ -14,6 +14,7 @@ import {
 import { hashString } from "../lib/hash";
 import { badRequest, conflict, notFound, validationError } from "../lib/errors";
 import { assertMediaRefs } from "./media";
+import { assertEntryRefs, resolveReferenceValues } from "./references";
 import { regenerateRichText, seedDefaults, validateFieldData } from "./field-data";
 
 import { parseFieldOptions, type FieldOptions } from "@/shared/field-types";
@@ -23,6 +24,7 @@ import type {
   EntryData,
   EntryDetail,
   EntryListResult,
+  EntryRef,
   EntryStatus,
   EntrySummary,
   ExportedEntry,
@@ -36,12 +38,16 @@ export interface CreateEntryInput {
   data?: EntryData;
   slug?: string | null;
   publish?: boolean;
+  /** Resolve reference values given as a target entry *slug* to its id (MCP/REST convenience). */
+  resolveReferences?: boolean;
 }
 
 export interface UpdateEntryPatch {
   data?: EntryData;
   slug?: string | null;
   sortOrder?: number;
+  /** Resolve reference values given as a target entry *slug* to its id (MCP/REST convenience). */
+  resolveReferences?: boolean;
 }
 
 interface LoadedCollection {
@@ -249,6 +255,28 @@ export async function getEntryDetail(db: DrizzleDb, id: string): Promise<EntryDe
   return mapDetail(await findEntry(db, id));
 }
 
+/** A lightweight resolved reference target (id → title/slug/collection/status) for pickers. */
+export async function getEntryRef(db: DrizzleDb, id: string): Promise<EntryRef> {
+  const row = await db
+    .select({
+      entry: entries,
+      collectionSlug: collections.slug,
+      titleField: collections.titleField,
+    })
+    .from(entries)
+    .innerJoin(collections, eq(entries.collectionId, collections.id))
+    .where(eq(entries.id, id))
+    .get();
+  if (!row) throw notFound("Entry not found");
+  return {
+    id: row.entry.id,
+    title: titlePreview(parseJson(row.entry.draftData), row.titleField),
+    slug: row.entry.slug,
+    collectionSlug: row.collectionSlug,
+    status: deriveStatus(row.entry),
+  };
+}
+
 export async function countEntriesByCollection(db: DrizzleDb): Promise<Map<string, number>> {
   const rows = await db
     .select({ collectionId: entries.collectionId, n: count() })
@@ -290,10 +318,14 @@ export async function createEntry(
     throw conflict("This singleton already has an entry");
   }
 
-  const merged = { ...seedDefaults(defs), ...(input.data ?? {}) };
+  const inputData = input.resolveReferences
+    ? await resolveReferenceValues(db, defs, input.data ?? {})
+    : input.data ?? {};
+  const merged = { ...seedDefaults(defs), ...inputData };
   const normalized = regenerateRichText(defs, merged);
   const draftData = validate(defs, normalized, "draft");
   await assertMediaRefs(db, defs, draftData);
+  await assertEntryRefs(db, defs, draftData);
   const slugValue = normalizeEntrySlug(input.slug);
 
   const now = Date.now();
@@ -305,6 +337,7 @@ export async function createEntry(
   let publishedAt: number | null = null;
   if (input.publish) {
     const publishedData = validate(defs, normalized, "publish");
+    await assertEntryRefs(db, defs, publishedData, { requirePublishedTargets: true });
     publishedJson = JSON.stringify(publishedData);
     publishedEtag = hashString(publishedJson);
     publishedAt = now;
@@ -354,10 +387,14 @@ export async function updateEntry(
   const values: Partial<typeof entries.$inferInsert> = { updatedAt: now, updatedBy: userId ?? null };
 
   if (patch.data !== undefined) {
-    const merged = { ...parseJson(row.draftData), ...patch.data };
+    const patchData = patch.resolveReferences
+      ? await resolveReferenceValues(db, defs, patch.data)
+      : patch.data;
+    const merged = { ...parseJson(row.draftData), ...patchData };
     const normalized = regenerateRichText(defs, merged);
     const draft = validate(defs, normalized, "draft");
     await assertMediaRefs(db, defs, draft);
+    await assertEntryRefs(db, defs, draft);
     values.draftData = JSON.stringify(draft);
     values.draftUpdatedAt = now;
   }
@@ -385,6 +422,7 @@ export async function publishEntry(
   const normalized = regenerateRichText(defs, parseJson(row.draftData));
   const publishedData = validate(defs, normalized, "publish");
   await assertMediaRefs(db, defs, publishedData);
+  await assertEntryRefs(db, defs, publishedData, { requirePublishedTargets: true });
   const publishedJson = JSON.stringify(publishedData);
   const etag = hashString(publishedJson);
   const now = Date.now();
@@ -490,8 +528,12 @@ export async function reorderEntries(db: DrizzleDb, slug: string, ids: string[])
  *
  * Reuses the same lifecycle internals as createEntry: rich_text HTML is regenerated
  * server-side (no stored XSS) and both draft and published payloads are schema-validated.
- * Media references are deliberately NOT checked (`assertMediaRefs` is skipped) — exports
- * carry media ids by reference and the target instance may not hold those assets.
+ * Media references are deliberately NOT checked (`assertMediaRefs` is skipped) — exports carry
+ * media ids by reference and the target instance may not hold those assets. Entry references
+ * (`assertEntryRefs`) are likewise skipped: ids are re-minted here, so a source reference value
+ * would fail an existence check. NOTE: preserving cross-entry references across import (an
+ * old→new id remap pass) is a separate, not-yet-built step; until it lands, imported reference
+ * values keep their SOURCE ids and will resolve to `null` in the target instance.
  *
  * All timestamps, slug and sortOrder are preserved from the export so the derived status
  * (draft/published/changed) is reproduced. Runs as one D1 batch.

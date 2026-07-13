@@ -52,3 +52,31 @@ account when the login has more than one — required in non-interactive runs wi
 - Fresh clones lack the gitignored `worker-configuration.d.ts`; run `bun run cf-typegen` before the
   worker typecheck (`tsc -p tsconfig.worker.json`) will pass.
 - Full walkthrough (custom domains, offboarding) is in README → **Managing multiple clients**.
+
+## Relationships between schemas (the `reference` field type)
+
+Entries link to other entries through the `reference` field type — the media (`picture`/`video`)
+pattern pointed at `entries`. Preserve this design; do **not** regress it:
+
+- **A reference stores the target entry's id in the entry JSON** (`draft_data`/`published_data`),
+  keyed by field name — a bare id string, or an ordered `id[]` when `options.multiple`. Never a
+  name/slug string, and **never a relational join table.** The reason is the draft/publish snapshot:
+  a reference inside the JSON snapshots, reverts (`discardDraft`), and publishes atomically with the
+  rest of the entry for free; a join table would need its own draft/published state per edge,
+  doubling the `services/entries.ts` state machine.
+- **Options:** `targetCollections` (allowed target collection slugs; `[]`/`["*"]` = any/polymorphic)
+  and `multiple`. Flipping `multiple` reshapes stored values, so it's a **destructive** change gated
+  by `allowDestructive` in `setFields` (like a type change).
+- **Write-time integrity** is `assertEntryRefs` (`services/references.ts`), called next to
+  `assertMediaRefs` in create/update/publish — batched existence + target-collection check. A
+  **required** reference to an unpublished target is **blocked at publish** (else it would deliver
+  `null`). zod only checks the value *shape*; existence needs a DB read, exactly like media.
+- **Delivery** expands each reference via `expandReferences` (`services/delivery.ts`) into
+  `{ id, slug, title, collection }` (or `null` if the target is deleted/unpublished) — one level deep
+  in v1. `title` comes from the target's **published** data. Because expansion embeds another
+  collection's data, each referenced collection's `contentVersion`/`updatedAt` is folded into the
+  referrer's delivery **ETags** (`referencedVersionSignature`) so a rename never serves a stale 304.
+- **Deletion is SET-NULL-like:** there is no DB cascade (it's JSON); a dangling id simply resolves to
+  `null` at delivery, with a pre-delete usage warning (`getEntryUsage`, `LIKE '%"<id>"%'` scan).
+- `reference` is **not** enabled on product custom fields — `product_fields`' CHECK is left unwidened
+  and `setProductFields`/`normalizeField` rejects it explicitly.

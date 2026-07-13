@@ -280,6 +280,15 @@ export interface EntrySummary {
   updatedAt: number;
 }
 
+/** A lightweight resolved reference target: enough to render a reference field's preview. */
+export interface EntryRef {
+  id: string;
+  title: string;
+  slug: string | null;
+  collectionSlug: string;
+  status: EntryStatus;
+}
+
 /** A single entry with both its draft and published payloads. */
 export interface EntryDetail {
   id: string;
@@ -343,6 +352,21 @@ export interface DeliveryMedia {
   duration: number | null;
   alt: string | null;
   size: number;
+}
+
+/**
+ * An expanded reference as served by the delivery API. A reference field value (a bare
+ * target entry id, or an id[] when `multiple`) is replaced with this object (or an array
+ * of them); a dangling or unpublished target becomes `null`. `title` comes from the
+ * target's *published* data via its collection's title field. `data` (the target's own
+ * delivered fields) is reserved for opt-in deeper expansion — absent in the v1 depth-1 shape.
+ */
+export interface DeliveryReference {
+  id: string;
+  slug: string | null;
+  title: string;
+  collection: string;
+  data?: EntryData;
 }
 
 // --- Contact forms (public submissions + admin management) -------------------
@@ -480,6 +504,18 @@ export interface MediaUsageEntry {
 
 export interface MediaUsage {
   entries: MediaUsageEntry[];
+}
+
+/** One entry referencing another entry (for the delete-usage warning). */
+export interface EntryUsageEntry {
+  entryId: string;
+  collectionSlug: string;
+  collectionName: string;
+  title: string;
+}
+
+export interface EntryUsage {
+  entries: EntryUsageEntry[];
 }
 
 /** Public schema descriptor (collections + field defs) for typed delivery clients. */

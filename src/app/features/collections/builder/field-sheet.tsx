@@ -26,6 +26,7 @@ import {
 import { Input } from "@/app/components/ui/input";
 import { Textarea } from "@/app/components/ui/textarea";
 import { Switch } from "@/app/components/ui/switch";
+import { ToggleGroup, ToggleGroupItem } from "@/app/components/ui/toggle-group";
 import {
   Sheet,
   SheetContent,
@@ -51,6 +52,10 @@ interface FieldSheetProps {
   initial: FieldDTO | null;
   /** Field names already used in this collection (for duplicate detection in add mode). */
   existingNames: string[];
+  /** All collections, for a reference field's target-collection selector (self-reference allowed). */
+  availableCollections: { slug: string; name: string }[];
+  /** Field types to hide from the type picker (e.g. `reference` on product schemas). */
+  excludeTypes?: FieldType[];
   submitting: boolean;
   onApply: (field: FieldDraft) => void;
 }
@@ -64,6 +69,7 @@ interface FieldFormValues {
 function defaultOptionsFor(type: FieldType): FieldOptions {
   if (type === "link") return { allowRelative: true };
   if (type === "boolean") return { default: false };
+  if (type === "reference") return { targetCollections: [], multiple: false };
   return {};
 }
 
@@ -84,6 +90,8 @@ export function FieldSheet({
   onOpenChange,
   initial,
   existingNames,
+  availableCollections,
+  excludeTypes = [],
   submitting,
   onApply,
 }: FieldSheetProps): React.ReactElement {
@@ -186,7 +194,7 @@ export function FieldSheet({
 
         {showTypePicker ? (
           <div className="grid grid-cols-2 gap-3 p-4">
-            {FIELD_TYPE_LIST.map((t) => {
+            {FIELD_TYPE_LIST.filter((t) => !excludeTypes.includes(t)).map((t) => {
               const Icon = FIELD_TYPE_ICONS[t];
               return (
                 <button
@@ -256,7 +264,7 @@ export function FieldSheet({
                   )}
                 />
 
-                <TypeOptions type={type} control={form.control} />
+                <TypeOptions type={type} control={form.control} availableCollections={availableCollections} />
               </div>
 
               <SheetFooter className="border-t">
@@ -374,7 +382,15 @@ function NumberRow({
   );
 }
 
-function TypeOptions({ type, control }: { type: FieldType; control: Control<FieldFormValues> }): React.ReactElement {
+function TypeOptions({
+  type,
+  control,
+  availableCollections,
+}: {
+  type: FieldType;
+  control: Control<FieldFormValues>;
+  availableCollections: { slug: string; name: string }[];
+}): React.ReactElement {
   const required = FIELD_TYPES[type].hasRequired ? (
     <SwitchRow control={control} name="options.required" label="Required" description="Must be set before publishing." />
   ) : null;
@@ -418,6 +434,49 @@ function TypeOptions({ type, control }: { type: FieldType; control: Control<Fiel
           label="Allow relative links"
           description="Permit /path and #anchor in addition to full URLs."
         />
+      ) : null}
+      {type === "reference" ? (
+        <>
+          <FormField
+            control={control}
+            name={"options.targetCollections" as never}
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Target collections</FormLabel>
+                <FormDescription>
+                  Which collections this field can link to. Leave all unselected to allow any.
+                </FormDescription>
+                <FormControl>
+                  {availableCollections.length > 0 ? (
+                    <ToggleGroup
+                      type="multiple"
+                      variant="outline"
+                      size="sm"
+                      className="flex-wrap justify-start"
+                      value={Array.isArray(field.value) ? (field.value as string[]) : []}
+                      onValueChange={(v) => field.onChange(v)}
+                    >
+                      {availableCollections.map((c) => (
+                        <ToggleGroupItem key={c.slug} value={c.slug} className="px-3">
+                          {c.name}
+                        </ToggleGroupItem>
+                      ))}
+                    </ToggleGroup>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No other collections yet — any is allowed.</p>
+                  )}
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <SwitchRow
+            control={control}
+            name="options.multiple"
+            label="Allow multiple"
+            description="Store an ordered list of entries instead of a single one."
+          />
+        </>
       ) : null}
       {help}
     </div>

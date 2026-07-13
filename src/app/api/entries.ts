@@ -1,17 +1,56 @@
-import { keepPreviousData, queryOptions } from "@tanstack/react-query";
+import { infiniteQueryOptions, keepPreviousData, queryOptions } from "@tanstack/react-query";
 
 import { api } from "./client";
 
-import type { EntryData, EntryDetail, EntryListResult, ListEntriesParams } from "@/shared/api-types";
+import type {
+  EntryData,
+  EntryDetail,
+  EntryListResult,
+  EntryRef,
+  ListEntriesParams,
+} from "@/shared/api-types";
+
+export const ENTRY_PICKER_PAGE_SIZE = 30;
 
 export const entriesKeys = {
   all: ["entries"] as const,
   lists: (slug: string) => [...entriesKeys.all, "list", slug] as const,
   list: (slug: string, params: ListEntriesParams) =>
     [...entriesKeys.lists(slug), params] as const,
+  picker: (slug: string, search: string) => [...entriesKeys.lists(slug), "picker", search] as const,
   detail: (id: string) => [...entriesKeys.all, "detail", id] as const,
+  ref: (id: string) => [...entriesKeys.all, "ref", id] as const,
   singleton: (slug: string) => [...entriesKeys.all, "singleton", slug] as const,
 };
+
+/** Lightweight resolved reference target (title/slug/status) — powers the reference preview. */
+export const entryRefQueryOptions = (id: string) =>
+  queryOptions({
+    queryKey: entriesKeys.ref(id),
+    queryFn: async () => {
+      const { ref } = await api.get<{ ref: EntryRef }>(`/api/admin/entries/${id}/ref`);
+      return ref;
+    },
+    retry: false,
+  });
+
+/** Infinite, searchable list of a collection's entries for the reference picker. */
+export const entriesPickerInfiniteQueryOptions = (slug: string, search: string) =>
+  infiniteQueryOptions({
+    queryKey: entriesKeys.picker(slug, search),
+    queryFn: ({ pageParam }) => {
+      const qs = new URLSearchParams();
+      if (search) qs.set("search", search);
+      qs.set("limit", String(ENTRY_PICKER_PAGE_SIZE));
+      qs.set("offset", String(pageParam));
+      return api.get<EntryListResult>(`/api/admin/collections/${slug}/entries?${qs.toString()}`);
+    },
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) => {
+      const loaded = allPages.reduce((n, p) => n + p.entries.length, 0);
+      return loaded < lastPage.total ? loaded : undefined;
+    },
+  });
 
 export const entriesListQueryOptions = (slug: string, params: ListEntriesParams) =>
   queryOptions({
