@@ -111,6 +111,17 @@ export function GeneralSettingsPage(): React.ReactElement {
     onError: (e) => toast.error(e instanceof Error ? e.message : t("settings.general.saveError")),
   });
 
+  // The Forms toggle mirrors the Store toggle: it saves immediately and writes the fresh
+  // settings back into the cache so the sidebar nav and route guard react at once.
+  const toggleForms = useMutation({
+    mutationFn: (enabled: boolean) => updateProjectSettings({ formsEnabled: enabled }),
+    onSuccess: (result) => {
+      queryClient.setQueryData<ProjectSettings>(settingsKeys.all, result);
+      toast.success(t("settings.general.saved"));
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : t("settings.general.saveError")),
+  });
+
   const origin = window.location.origin;
   const deliveryBaseUrl = `${origin}/api/v1`;
   const mcpUrl = `${origin}/mcp`;
@@ -265,6 +276,26 @@ export function GeneralSettingsPage(): React.ReactElement {
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">{t("settings.general.themeHint")}</p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">{t("settings.general.forms")}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex max-w-xl items-center justify-between gap-4">
+            <div className="space-y-0.5">
+              <Label htmlFor="forms-enabled">{t("settings.general.formsEnable")}</Label>
+              <p className="text-xs text-muted-foreground">{t("settings.general.formsHint")}</p>
+            </div>
+            <Switch
+              id="forms-enabled"
+              checked={data?.formsEnabled ?? false}
+              onCheckedChange={(v) => toggleForms.mutate(v)}
+              disabled={!data || toggleForms.isPending}
+            />
           </div>
         </CardContent>
       </Card>

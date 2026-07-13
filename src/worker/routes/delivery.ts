@@ -2,8 +2,9 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 
 import type { AppEnv } from "../lib/app";
-import { badRequest, payloadTooLarge } from "../lib/errors";
+import { badRequest, notFound, payloadTooLarge } from "../lib/errors";
 import { submitContactForm } from "../services/contact-forms";
+import { isFormsEnabled } from "../services/settings";
 import {
   getContentItem,
   getPublicSchema,
@@ -96,6 +97,11 @@ deliveryRouter.get("/content/:slug/:idOrSlug", async (c) => {
 // Public write-only contact form endpoint. The public key is intended for frontend code;
 // server-side validation strips unknown fields and rate-limits by form + hashed client IP.
 deliveryRouter.post("/contact-forms/:publicKey/submissions", async (c) => {
+  // Module gate: when the Forms module is off, submissions 404 as if the endpoint doesn't
+  // exist (mirrors the Store module's public catalog gate in commerce.ts).
+  if (!(await isFormsEnabled(c.get("db")))) {
+    throw notFound("The Forms module is not enabled");
+  }
   const contentLength = Number(c.req.header("content-length"));
   if (Number.isFinite(contentLength) && contentLength > 64 * 1024) {
     throw payloadTooLarge("Submission is too large");

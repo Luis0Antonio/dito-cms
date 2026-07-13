@@ -53,6 +53,12 @@ export interface ProjectSettings {
    * instances leave this off and are entirely unaffected.
    */
   commerceEnabled: boolean;
+  /**
+   * Whether the optional Forms (contact forms) module is enabled. OFF by default. Gates the
+   * contact-form admin routes, the public submission endpoint, the MCP forms toggle and the
+   * SPA forms nav/route. Instances that don't use forms leave this off and are unaffected.
+   */
+  formsEnabled: boolean;
 }
 
 // --- Deploy hook -------------------------------------------------------------

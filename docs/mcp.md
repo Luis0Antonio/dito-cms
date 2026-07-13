@@ -89,8 +89,8 @@ This is the instance's own description; the tables below are the stable capabili
 
 ## Tools
 
-The server exposes **17 always-on tools** plus **11 Store tools that appear only when the
-commerce module is enabled** (28 total). Tool names and one-line summaries are below; the
+The server exposes **18 always-on tools** plus **11 Store tools that appear only when the
+commerce module is enabled** (29 total). Tool names and one-line summaries are below; the
 **authoritative, always-current input schemas come from MCP `tools/list`** (and `get_cms_info`
 for the field-type options). This page intentionally does not copy the schemas — connect and read
 them live.
@@ -101,6 +101,7 @@ them live.
 |---|---|
 | `get_cms_info` | Cold-start overview of the instance. Call first. |
 | `set_store_enabled` | Enable/disable the optional Store (commerce) module. Always available. |
+| `set_forms_enabled` | Enable/disable the optional Forms (contact forms) module. Always available. |
 
 ### Collections & schema
 

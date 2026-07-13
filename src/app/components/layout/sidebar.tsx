@@ -21,10 +21,12 @@ export function Sidebar(): React.ReactElement {
   const { data: settings } = useQuery(projectSettingsQueryOptions);
   const projectName = settings?.projectName ?? APP_NAME;
 
-  // The Store nav is only shown when the commerce module is enabled.
+  // The Forms and Store navs are only shown when their optional modules are enabled.
   const nav: NavItem[] = [
     { to: "/collections", labelKey: "nav.collections", icon: LayoutGridIcon },
-    { to: "/contact-forms", labelKey: "nav.contactForms", icon: MailIcon },
+    ...(settings?.formsEnabled
+      ? [{ to: "/contact-forms", labelKey: "nav.contactForms", icon: MailIcon } as const]
+      : []),
     { to: "/media", labelKey: "nav.media", icon: ImageIcon },
     ...(settings?.commerceEnabled
       ? [{ to: "/store", labelKey: "nav.store", icon: ShoppingBagIcon } as const]
