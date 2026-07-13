@@ -39,7 +39,7 @@ export function SecretRevealDialog({
           <DialogTitle>{title}</DialogTitle>
           {description ? <DialogDescription>{description}</DialogDescription> : null}
         </DialogHeader>
-        <div className="space-y-3">
+        <div className="min-w-0 space-y-3">
           {fields?.map((f) => (
             <div key={f.label} className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">{f.label}</span>
@@ -47,7 +47,7 @@ export function SecretRevealDialog({
             </div>
           ))}
           <div className="flex items-center gap-2">
-            <code className="flex-1 truncate rounded-md bg-muted px-3 py-2 font-mono text-sm">{secret}</code>
+            <code className="min-w-0 flex-1 truncate rounded-md bg-muted px-3 py-2 font-mono text-sm">{secret}</code>
             <CopyButton value={secret} />
           </div>
           <Alert className="border-warning/40 text-foreground">
