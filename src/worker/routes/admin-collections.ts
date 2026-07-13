@@ -11,6 +11,7 @@ import {
   setFields,
   updateCollection,
 } from "../services/collections";
+import { migrateStringFieldToReference } from "../services/references";
 
 import type { CollectionType, SetFieldsInput } from "@/shared/api-types";
 import type { FieldType, FieldOptions } from "@/shared/field-types";
@@ -92,6 +93,27 @@ collectionsRouter.put("/:slug/fields", async (c) => {
     fields: readFieldInputs(body.fields),
     allowDestructive: body.allowDestructive === true,
   });
+  return c.json(result);
+});
+
+// Backfill a reference field from a legacy name-string field (WS7). Returns { converted,
+// unmatched, ambiguous } so the caller can reconcile stragglers before dropping the old field.
+collectionsRouter.post("/:slug/migrate-reference", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const fromField = asString(body.fromField);
+  const toField = asString(body.toField);
+  const targetCollection = asString(body.targetCollection);
+  if (!fromField || !toField || !targetCollection) {
+    throw badRequest("`fromField`, `toField` and `targetCollection` are required");
+  }
+  const { result, publishedChanged } = await migrateStringFieldToReference(c.get("db"), {
+    collectionSlug: c.req.param("slug"),
+    fromField,
+    toField,
+    targetCollectionSlug: targetCollection,
+  });
+  // Rewriting published entries changes what delivery serves → notify the deploy hook.
+  if (publishedChanged) fireDeployHook(c, { event: "collection.migrate-reference", detail: c.req.param("slug") });
   return c.json(result);
 });
 

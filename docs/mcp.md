@@ -89,8 +89,8 @@ This is the instance's own description; the tables below are the stable capabili
 
 ## Tools
 
-The server exposes **18 always-on tools** plus **11 Store tools that appear only when the
-commerce module is enabled** (29 total). Tool names and one-line summaries are below; the
+The server exposes **19 always-on tools** plus **11 Store tools that appear only when the
+commerce module is enabled** (30 total). Tool names and one-line summaries are below; the
 **authoritative, always-current input schemas come from MCP `tools/list`** (and `get_cms_info`
 for the field-type options). This page intentionally does not copy the schemas — connect and read
 them live.
@@ -112,6 +112,7 @@ them live.
 | `create_collection` | Create a collection (many entries) or singleton (one), optionally with fields. |
 | `update_collection` | Update editable metadata (name, description, title field, sort order). |
 | `set_collection_fields` | Declaratively replace a collection's full field set; diffs by field name. |
+| `migrate_string_field_to_reference` | Backfill a reference field from a legacy name-string field (matches target titles); reports unmatched/ambiguous rows. |
 | `delete_collection` | Permanently delete a collection and all its entries (`confirm` must equal the slug). |
 
 ### Entries (draft → publish)
@@ -156,7 +157,9 @@ Enable with `set_store_enabled` first (or from **Settings**). These then become 
   (a deleted/unpublished target becomes `null`). A required reference to an unpublished target is
   blocked at publish. Configure it with `targetCollections` (allowed target slugs; `[]`/`["*"]` = any)
   and `multiple`. Deleting an entry isn't silent: `delete_entry` returns the entries that referenced
-  it (under `referencedBy`) — those links resolve to `null` afterward.
+  it (under `referencedBy`) — those links resolve to `null` afterward. To convert legacy "link by
+  name" text fields into real references, add the reference field then run
+  `migrate_string_field_to_reference` (matches on the target's title, reports unmatched/ambiguous).
 - **Draft → publish.** Edits save as drafts; the delivery API serves only the last published
   version. Required fields and bounds are enforced at publish time, not while drafting.
 - **Destructive changes are guarded.** Removing a field or changing its type needs

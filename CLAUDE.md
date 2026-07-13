@@ -85,5 +85,14 @@ pattern pointed at `entries`. Preserve this design; do **not** regress it:
   ids, so a single pass would break A→B when B lands after A. A reference into a *skipped* collection has
   no new id and stays a dangling source id (→ `null`), counted as `unresolvedReferences`. v1 bundles are
   still accepted but their references don't carry over. Don't collapse this back to a per-collection loop.
+- **Legacy string→reference migration** is `migrateStringFieldToReference` (`services/references.ts`),
+  exposed as `POST /api/admin/collections/:slug/migrate-reference` and the `migrate_string_field_to_reference`
+  MCP tool. It matches each entry's old name-string (trimmed, case-insensitive) against the target
+  collection's **title**, writes the resolved id into the new reference field in **both** draft and
+  published JSON directly (no re-publish — safe by construction, so `assertEntryRefs` is bypassed) and
+  recomputes `published_etag` + bumps `contentVersion` when a live row moves. An **ambiguous** title
+  (shared by 2+ targets) is reported, never auto-resolved; the caller fixes `unmatched`/`ambiguous` by
+  hand, then drops the old field with `setFields(allowDestructive)`. Don't reintroduce name matching as
+  the *runtime* link — this tool is a one-time backfill onto the id-based design.
 - `reference` is **not** enabled on product custom fields — `product_fields`' CHECK is left unwidened
   and `setProductFields`/`normalizeField` rejects it explicitly.

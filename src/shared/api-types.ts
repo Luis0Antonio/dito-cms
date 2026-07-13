@@ -518,6 +518,18 @@ export interface EntryUsage {
   entries: EntryUsageEntry[];
 }
 
+/**
+ * Result of migrating a string-name field into a `reference` field
+ * (migrateStringFieldToReference). `converted` counts entries whose old string matched
+ * exactly one target; `unmatched` and `ambiguous` list the rows a human must reconcile by
+ * hand before the old string field is dropped (an ambiguous title is never auto-resolved).
+ */
+export interface ReferenceMigrationResult {
+  converted: number;
+  unmatched: Array<{ entryId: string; value: string }>;
+  ambiguous: Array<{ entryId: string; value: string; candidateIds: string[] }>;
+}
+
 /** Public schema descriptor (collections + field defs) for typed delivery clients. */
 export interface DeliveryCollectionSchema {
   slug: string;
