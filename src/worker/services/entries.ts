@@ -7,13 +7,14 @@ import {
   collections,
   entries,
   fields,
+  media,
   type CollectionRow,
   type EntryRow,
   type FieldRow,
 } from "../db/schema";
 import { hashString } from "../lib/hash";
 import { badRequest, conflict, notFound, validationError } from "../lib/errors";
-import { assertMediaRefs } from "./media";
+import { assertMediaRefs, toMediaDTO } from "./media";
 import { assertEntryRefs, resolveReferenceValues } from "./references";
 import { regenerateRichText, seedDefaults, validateFieldData } from "./field-data";
 
@@ -26,6 +27,7 @@ import type {
   EntryDetail,
   EntryListResult,
   EntryRef,
+  EntryRefImage,
   EntryStatus,
   EntrySummary,
   ExportedEntry,
@@ -256,6 +258,35 @@ export async function getEntryDetail(db: DrizzleDb, id: string): Promise<EntryDe
   return mapDetail(await findEntry(db, id));
 }
 
+/**
+ * A thumbnail for the reference preview: the target's first picture field (in schema order),
+ * resolved to a URL. Returns null on every miss — no picture field, an empty value, or media
+ * that's gone / still uploading / not an image — so an image-less target degrades to the
+ * text-only preview. Reads draft data to match `titlePreview`.
+ */
+async function resolveCoverImage(
+  db: DrizzleDb,
+  collectionId: string,
+  draft: EntryData,
+): Promise<EntryRefImage | null> {
+  const picture = await db
+    .select({ name: fields.name })
+    .from(fields)
+    .where(and(eq(fields.collectionId, collectionId), eq(fields.type, "picture")))
+    .orderBy(asc(fields.sortOrder))
+    .get();
+  if (!picture) return null;
+
+  const value = draft[picture.name];
+  if (typeof value !== "string" || !value) return null;
+
+  const row = await db.select().from(media).where(eq(media.id, value)).get();
+  if (!row || row.status !== "ready" || row.kind !== "image") return null;
+
+  const dto = toMediaDTO(row);
+  return { url: dto.url, alt: dto.alt };
+}
+
 /** A lightweight resolved reference target (id → title/slug/collection/status) for pickers. */
 export async function getEntryRef(db: DrizzleDb, id: string): Promise<EntryRef> {
   const row = await db
@@ -269,12 +300,14 @@ export async function getEntryRef(db: DrizzleDb, id: string): Promise<EntryRef> 
     .where(eq(entries.id, id))
     .get();
   if (!row) throw notFound("Entry not found");
+  const draft = parseJson(row.entry.draftData);
   return {
     id: row.entry.id,
-    title: titlePreview(parseJson(row.entry.draftData), row.titleField),
+    title: titlePreview(draft, row.titleField),
     slug: row.entry.slug,
     collectionSlug: row.collectionSlug,
     status: deriveStatus(row.entry),
+    image: await resolveCoverImage(db, row.entry.collectionId, draft),
   };
 }
 

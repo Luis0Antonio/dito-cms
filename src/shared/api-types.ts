@@ -280,6 +280,12 @@ export interface EntrySummary {
   updatedAt: number;
 }
 
+/** A thumbnail for a reference preview, drawn from the target entry's first image field. */
+export interface EntryRefImage {
+  url: string;
+  alt: string | null;
+}
+
 /** A lightweight resolved reference target: enough to render a reference field's preview. */
 export interface EntryRef {
   id: string;
@@ -287,6 +293,8 @@ export interface EntryRef {
   slug: string | null;
   collectionSlug: string;
   status: EntryStatus;
+  /** Thumbnail from the target's first image field, or null when it has none. */
+  image: EntryRefImage | null;
 }
 
 /** A single entry with both its draft and published payloads. */

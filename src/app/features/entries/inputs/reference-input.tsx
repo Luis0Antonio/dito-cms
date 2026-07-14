@@ -68,8 +68,13 @@ function ReferencePreview({
   }
 
   return (
-    <div className="flex items-center gap-2 rounded-lg border p-3">
+    <div className="flex items-center gap-3 rounded-lg border p-3">
       {dragHandle}
+      {data.image ? (
+        <div className="size-12 shrink-0 overflow-hidden rounded-md border bg-muted">
+          <img src={data.image.url} alt={data.image.alt ?? ""} className="size-full object-cover" />
+        </div>
+      ) : null}
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">{data.title}</p>
         <p className="truncate font-mono text-xs text-muted-foreground">{data.collectionSlug}</p>
@@ -135,7 +140,9 @@ export function ReferenceFieldInput({ control, field }: EntryFieldInputProps): R
     .filter((c) => isAny || targets.includes(c.slug))
     .map((c) => ({ slug: c.slug, name: c.name }));
 
-  // Prime the ref cache so the preview resolves instantly without a round-trip.
+  // Prime the ref cache so the preview's title/status resolve instantly without a round-trip.
+  // The picker's EntrySummary carries no thumbnail, so invalidate to pull the image in the
+  // background — the global 10s staleTime would otherwise treat the primed `image: null` as fresh.
   const primeCache = (entry: EntrySummary, collectionSlug: string): void => {
     const ref: EntryRef = {
       id: entry.id,
@@ -143,8 +150,10 @@ export function ReferenceFieldInput({ control, field }: EntryFieldInputProps): R
       slug: entry.slug,
       collectionSlug,
       status: entry.status,
+      image: null,
     };
     queryClient.setQueryData(entriesKeys.ref(entry.id), ref);
+    void queryClient.invalidateQueries({ queryKey: entriesKeys.ref(entry.id) });
   };
 
   return (
