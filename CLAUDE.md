@@ -15,13 +15,15 @@ helpers live in `scripts/lib/fleet.ts`; the three entry points are:
 
 | Command | Use it to | Creates infra? |
 |---|---|---|
-| `bun run new-client <name>` | Provision **and** deploy a **new** client | ✅ D1 + R2 |
+| `bun run new-client <name>` | Provision **and** deploy a **new** client | ✅ D1 (+ R2 unless `--cloudinary`) |
 | `bun run deploy-client <name>` | Redeploy **one existing** client (migrate + build + deploy) | ❌ must exist |
 | `bun run deploy-all` | Redeploy **every** client in `clients/` (one shared build) | ❌ must exist |
 
 All three accept `--account <id>` (or the `CLOUDFLARE_ACCOUNT_ID` env var) to target a Cloudflare
 account when the login has more than one — required in non-interactive runs with multiple accounts.
 `new-client` is idempotent: it reuses existing D1/R2, refreshes `clients/<name>.jsonc`, and redeploys.
+Add `--cloudinary` to `new-client` to put that client's media on Cloudinary instead of R2 (per-client,
+from the same shared build); no flag → R2, exactly as before.
 
 ### How it works — don't break these
 
@@ -42,6 +44,18 @@ account when the login has more than one — required in non-interactive runs wi
   so any stray edit (e.g. a client-specific R2 binding written back by the Cloudflare dashboard)
   contaminates every future client. Note that `setKey` rewrites only the *first* `bucket_name`, so a
   multi-entry base leaks silently.
+- **Storage provider is per-client, inferred from the config — never a flag at deploy time.** The
+  **source of truth is the presence of an `r2_buckets` block in `clients/<name>.jsonc`** (`clientProvider`
+  in `fleet.ts`): present → R2, absent → Cloudinary. `patchDeployConfig` then **constructs** the
+  `MEDIA` binding for R2 clients or **strips** it for Cloudinary clients, so the one shared build
+  serves both. `deploy-client`/`deploy-all` only READ configs, so redeploying an existing R2 client is
+  byte-identical to before. **Base-file safety invariant:** a `--cloudinary` client removes `r2_buckets`
+  from an **in-memory copy only** (`stripR2FromText`) — it must **never** call setup.ts's `stripR2Binding()`,
+  which writes to the base and would silently turn every future client into Cloudinary. The Cloudinary
+  URL is validated up front (`assertCloudinaryUrl`, same rules as the worker's runtime parser) before any
+  infra is created, and its `CLOUDINARY_URL` secret is set via `wrangler secret put -c clients/<name>.jsonc`
+  **after** the first successful deploy (secrets attach to a live worker; never passed on argv). Provider
+  **switching** for an existing client is intentionally not supported in v1 — new clients only.
 
 ### Notes
 

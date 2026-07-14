@@ -9,7 +9,16 @@
  */
 import { existsSync } from "node:fs";
 
-import { applyMigrations, buildOnce, client, deployClient, parseArgs, useAccount, wrangler } from "./lib/fleet.ts";
+import {
+  applyMigrations,
+  buildOnce,
+  client,
+  clientProvider,
+  deployClient,
+  parseArgs,
+  useAccount,
+  wrangler,
+} from "./lib/fleet.ts";
 
 function main(): void {
   const { positionals, accountId } = parseArgs(process.argv.slice(2));
@@ -19,7 +28,7 @@ function main(): void {
     throw new Error(`No clients/${c.name}.jsonc — run \`bun run new-client ${c.name}\` first.`);
   }
 
-  console.warn(`→ Redeploying ${c.worker}…`);
+  console.warn(`→ Redeploying ${c.worker} (storage: ${clientProvider(c)})…`);
   const account = process.env.CLOUDFLARE_ACCOUNT_ID;
   if (account) console.warn(`  Cloudflare account: ${account}`);
   console.warn("\n→ Checking Wrangler authentication…");

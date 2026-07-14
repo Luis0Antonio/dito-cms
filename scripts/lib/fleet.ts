@@ -48,16 +48,20 @@ export function run(cmd: string, args: string[]): void {
 export interface FleetArgs {
   positionals: string[];
   accountId?: string;
+  /** `--cloudinary` — provision this (new) client on Cloudinary instead of R2. Read only by new-client. */
+  cloudinary?: boolean;
 }
 
 /**
- * Split argv into positionals and an optional Cloudflare account: `--account <id>`
- * (alias `--account-id`, also `--account=<id>`). Targets a specific account when your
- * `wrangler login` has more than one; apply it with useAccount().
+ * Split argv into positionals and options: an optional Cloudflare account `--account <id>`
+ * (alias `--account-id`, also `--account=<id>`) and the bare `--cloudinary` flag. The account
+ * targets a specific account when your `wrangler login` has more than one; apply it with
+ * useAccount().
  */
 export function parseArgs(argv: string[]): FleetArgs {
   const positionals: string[] = [];
   let accountId: string | undefined;
+  let cloudinary = false;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const inline = /^--account(?:-id)?=(.+)$/.exec(arg);
@@ -67,12 +71,17 @@ export function parseArgs(argv: string[]): FleetArgs {
       accountId = value;
     } else if (inline) {
       accountId = inline[1];
+    } else if (arg === "--cloudinary") {
+      cloudinary = true;
     } else {
       positionals.push(arg);
     }
   }
-  return { positionals, accountId };
+  return { positionals, accountId, cloudinary };
 }
+
+/** A client's media storage provider. Determines whether its Worker binds an R2 `MEDIA` bucket. */
+export type Provider = "r2" | "cloudinary";
 
 /**
  * Point every subsequent wrangler call at a specific account. Wrangler has no uniform
@@ -135,9 +144,23 @@ function setKey(text: string, key: string, value: string): string {
   return text.replace(re, `$1${value}$2`);
 }
 
-/** True if the base wrangler.jsonc still binds an R2 bucket (Cloudinary setups strip it). */
-export function baseHasR2(): boolean {
-  return /"r2_buckets"\s*:/.test(readFileSync(BASE_WRANGLER, "utf8"));
+/**
+ * Remove the `r2_buckets` block from a wrangler(.jsonc) TEXT blob — a pure, in-memory transform.
+ * Used to derive a Cloudinary client config that binds no R2 bucket. Same regex as setup.ts's
+ * global stripR2Binding, but it NEVER touches BASE_WRANGLER: the base stays pristine R2 so it can
+ * never contaminate future clients (see CLAUDE.md — base-file safety).
+ */
+export function stripR2FromText(text: string): string {
+  return text.replace(/\s*"r2_buckets"\s*:\s*\[[\s\S]*?\],?/, "");
+}
+
+/**
+ * A client's storage provider, inferred from its own config: an `r2_buckets` block → R2, its
+ * absence → Cloudinary. This is the single source of truth every deploy reads — no flag, no
+ * secret. Existing R2 clients already carry the block, so they always classify as R2.
+ */
+export function clientProvider(c: Client): Provider {
+  return /"r2_buckets"\s*:/.test(readFileSync(c.config, "utf8")) ? "r2" : "cloudinary";
 }
 
 /**
@@ -145,13 +168,21 @@ export function baseHasR2(): boolean {
  * and resource ids. Idempotent — overwrites/refreshes on re-run. Rewrites `database_id`
  * by its key (not a fixed placeholder), so it is correct even if `bun run setup` has
  * already baked a real id into the base config.
+ *
+ * `provider` picks the storage backend for this client: `"r2"` rewrites the base `bucket_name`
+ * to the client's bucket; `"cloudinary"` strips the whole `r2_buckets` block (in-memory only)
+ * so the client binds no R2 — its media identity comes from a per-client CLOUDINARY_URL secret.
  */
-export function writeClientConfig(c: Client, databaseId: string): void {
+export function writeClientConfig(c: Client, databaseId: string, provider: Provider): void {
   let text = readFileSync(BASE_WRANGLER, "utf8");
   text = setKey(text, "name", c.worker);
   text = setKey(text, "database_name", c.db);
   text = setKey(text, "database_id", databaseId);
-  if (readKey(text, "bucket_name")) text = setKey(text, "bucket_name", c.bucket);
+  if (provider === "cloudinary") {
+    text = stripR2FromText(text);
+  } else if (readKey(text, "bucket_name")) {
+    text = setKey(text, "bucket_name", c.bucket);
+  }
   // migrations_dir sits at repo root; from clients/ it must resolve back up one level.
   if (readKey(text, "migrations_dir")) {
     text = setKey(text, "migrations_dir", "../migrations");
@@ -191,6 +222,48 @@ export function ensureR2(bucket: string): void {
   } catch {
     console.warn(`  bucket "${bucket}" already exists — continuing`);
   }
+}
+
+/**
+ * Validate a CLOUDINARY_URL up front — BEFORE any infra is provisioned — so a bad value never
+ * ships a Cloudinary worker with no working storage (every media op would then throw). Accepts
+ * EXACTLY what the worker's runtime parser accepts (services/storage/index.ts `parseCloudinaryUrl`):
+ * protocol `cloudinary:` plus a non-empty api key, api secret and cloud name. Duplicated here (not
+ * imported) so the deploy scripts pull in no worker code.
+ */
+export function assertCloudinaryUrl(url: string): void {
+  const ok = (() => {
+    try {
+      const u = new URL(url);
+      return (
+        u.protocol === "cloudinary:" &&
+        !!decodeURIComponent(u.username) &&
+        !!decodeURIComponent(u.password) &&
+        !!u.host
+      );
+    } catch {
+      return false;
+    }
+  })();
+  if (!ok) {
+    throw new Error(
+      "Invalid CLOUDINARY_URL — expected cloudinary://<api_key>:<api_secret>@<cloud_name> " +
+        "(protocol, api key, api secret and cloud name are all required).",
+    );
+  }
+}
+
+/**
+ * Store a client's CLOUDINARY_URL as a Worker secret. `-c c.config` targets that client's worker by
+ * the `name` in its config; the worker must already be deployed (secrets attach to a live worker).
+ * The value is piped via stdin — never an argv/shell-history leak. Mirrors setup.ts's setSecret.
+ */
+export function setCloudinarySecret(c: Client, url: string): void {
+  execFileSync("npx", ["wrangler", "secret", "put", "CLOUDINARY_URL", "-c", c.config], {
+    cwd: ROOT,
+    input: url,
+    stdio: ["pipe", "inherit", "inherit"],
+  });
 }
 
 /** Apply pending migrations to the client's REMOTE D1 (idempotent — only unapplied migrations run). */
@@ -234,7 +307,14 @@ export function patchDeployConfig(c: Client): void {
     cfg.d1_databases[0].database_name = c.db;
     cfg.d1_databases[0].database_id = databaseId;
   }
-  if (cfg.r2_buckets?.[0]) cfg.r2_buckets[0].bucket_name = c.bucket;
+  // The MEDIA binding is per-client: an R2 client gets its own bucket; a Cloudinary client gets no
+  // binding at all (its storage is the CLOUDINARY_URL secret). Built from scratch — independent of
+  // whatever the shared build baked in, and byte-identical to today's output for existing R2 clients.
+  if (clientProvider(c) === "cloudinary") {
+    delete cfg.r2_buckets;
+  } else {
+    cfg.r2_buckets = [{ binding: "MEDIA", bucket_name: c.bucket }];
+  }
   writeFileSync(generated, JSON.stringify(cfg));
 }
 

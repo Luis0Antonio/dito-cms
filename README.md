@@ -137,6 +137,10 @@ existing files; each object keeps serving from the backend it was uploaded to. C
 size is governed by your Cloudinary plan (lower `MAX_CLOUDINARY_VIDEO_BYTES` in
 `src/shared/constants.ts` to cap video below the 2 GB default).
 
+Running a **fleet** of clients? The provider is chosen **per client** at provision time —
+`bun run new-client acme --cloudinary` puts that one client on Cloudinary while others stay on R2,
+all from the same shared build. See [Managing multiple clients](#managing-multiple-clients).
+
 ### Store secret encryption (commerce module)
 
 Optional, and only relevant when the commerce module is enabled and you configure payments.
@@ -151,11 +155,12 @@ the Worker never touches the key at boot.
 
 | Command | Use it to | Creates infra? |
 |---|---|---|
-| `bun run new-client <name>` | Provision **and** deploy a **new** client | ✅ D1 + R2 |
+| `bun run new-client <name>` | Provision **and** deploy a **new** client | ✅ D1 (+ R2 unless `--cloudinary`) |
 | `bun run deploy-client <name>` | Redeploy **one existing** client | ❌ must exist |
 | `bun run deploy-all` | Redeploy **every** client (one shared build) | ❌ must exist |
 
-All three accept `--account <id>` for multi-account logins (see the callout below).
+All three accept `--account <id>` for multi-account logins (see the callout below). Add `--cloudinary`
+to `new-client` to put a client's media on Cloudinary instead of R2 (see [Per-client media storage](#per-client-media-storage)).
 
 Running Dito for several clients? You do **not** need a clone — or a GitHub repo — per client.
 Each Dito instance is single-tenant (one Worker + one D1 + one R2), and that isolation is the
@@ -163,7 +168,8 @@ point: separate data, separate billing, and offboarding a client is just deletin
 From this one clone you provision and deploy an isolated instance per client with one command:
 
 ```bash
-bun run new-client acme   # creates D1 + R2, writes clients/acme.jsonc, migrates, deploys dito-acme
+bun run new-client acme               # creates D1 + R2, writes clients/acme.jsonc, migrates, deploys dito-acme
+bun run new-client beta --cloudinary  # same, but media on Cloudinary — no R2 bucket for this client
 ```
 
 > **Multiple Cloudflare accounts?** If `wrangler whoami` lists more than one account, wrangler
@@ -195,15 +201,42 @@ code and a single build.
 
 **`clients/<name>.jsonc` is your fleet's source of truth.** Each is a copy of `wrangler.jsonc`
 with the Worker `name` and D1/R2 resource ids swapped (binding names stay `DB` / `MEDIA`, so no
-app code changes). Commit them — they hold no secrets, only Cloudflare resource ids, and they
-record who is deployed, giving you a per-client "backup" without a repo each. **GitHub is not
-required to deploy:** `wrangler deploy` ships straight from this clone; only the
-"Deploy to Cloudflare" button needs a Git connection.
+app code changes). They hold no secrets — only Cloudflare resource ids — and are **gitignored**
+(the `clients/` directory is kept out of the repo): they live in your working clone and, because a
+`database_id` is inert without account auth, can be regenerated from the account (`wrangler d1 list`)
+if lost. **GitHub is not required to deploy:** `wrangler deploy` ships straight from this clone; only
+the "Deploy to Cloudflare" button needs a Git connection.
 
 Per-client knobs are the same as a single instance: the [auth secret](#auth-secret)
 auto-generates (or set `BETTER_AUTH_SECRET` per client), [Workers Paid](#plan-limits--notes) is
 recommended for production, and you set any per-client secret with
 `wrangler secret put <NAME> -c clients/<name>.jsonc`.
+
+### Per-client media storage
+
+Each client picks its own [media backend](#media-storage-r2-or-cloudinary) at provision time — one
+client can run on Cloudinary while the rest stay on R2, all served by the **same shared build**:
+
+```bash
+bun run new-client acme               # R2 (default): provisions dito-acme-media
+bun run new-client beta --cloudinary  # Cloudinary: no R2 bucket; media goes to Cloudinary
+```
+
+- **No flag → R2**, exactly as before. `--cloudinary` provisions D1 but **no** R2 bucket, and
+  deploys a Worker with no `MEDIA` binding — its media identity is the `CLOUDINARY_URL` secret.
+- **Credentials never touch the command line.** `new-client --cloudinary` reads the URL from the
+  `$CLOUDINARY_URL` env var (ideal for CI) or a muted interactive prompt, **validates it up front**
+  (before any infra is created), and stores it with `wrangler secret put CLOUDINARY_URL -c clients/<name>.jsonc`
+  **after** the first successful deploy (secrets attach to a live Worker). If that final step fails,
+  the command prints the exact manual `wrangler secret put …` to run.
+- **The client's config records the choice.** A Cloudinary client's `clients/<name>.jsonc` simply
+  omits the `r2_buckets` block; that presence/absence is what `deploy-client`/`deploy-all` read to
+  redeploy each client on the right backend — no flag needed on redeploy. `deploy-*` print
+  `storage: r2` / `storage: cloudinary` per client so a missing secret is easy to spot.
+- **Existing clients are unaffected.** R2 clients keep their `r2_buckets` block and redeploy exactly
+  as before; the base `wrangler.jsonc` stays pristine R2. Switching an existing client's provider is
+  **not** supported in v1 — new clients only. (Switching wouldn't migrate already-uploaded files
+  anyway; each object keeps serving from the backend it was uploaded to.)
 
 ### Custom domains
 
