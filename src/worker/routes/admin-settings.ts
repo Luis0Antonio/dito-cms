@@ -9,8 +9,12 @@ import {
   setCommerceEnabled,
   isFormsEnabled,
   setFormsEnabled,
+  getStorageLimitGb,
+  setStorageLimitGb,
 } from "../services/settings";
-import { badRequest } from "../lib/errors";
+import { getStorageUsedBytes } from "../services/media";
+import { isSystemAdmin } from "../services/roles";
+import { badRequest, forbidden } from "../lib/errors";
 
 import { APP_NAME, MAX_LOGO_DATA_URL_BYTES } from "@/shared/constants";
 import type { ProjectSettings } from "@/shared/api-types";
@@ -29,12 +33,16 @@ async function readLogo(db: DrizzleDb): Promise<string | null> {
   return value ? value : null;
 }
 
-async function readSettings(db: DrizzleDb): Promise<ProjectSettings> {
+async function readSettings(db: DrizzleDb, userId: string | undefined): Promise<ProjectSettings> {
   return {
     projectName: await readProjectName(db),
     logo: await readLogo(db),
     commerceEnabled: await isCommerceEnabled(db),
     formsEnabled: await isFormsEnabled(db),
+    storageLimitGb: await getStorageLimitGb(db),
+    storageUsedBytes: await getStorageUsedBytes(db),
+    // Read-only figures above go to every admin; this flag only toggles the editable input.
+    canEditStorageLimit: await isSystemAdmin(db, userId),
   };
 }
 
@@ -55,12 +63,18 @@ function normalizeLogo(value: string): string {
 }
 
 settingsRouter.get("/", async (c) => {
-  return c.json(await readSettings(c.get("db")));
+  return c.json(await readSettings(c.get("db"), c.get("authUserId")));
 });
 
 settingsRouter.patch("/", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
   const db = c.get("db");
+  // Authorize the gated field BEFORE applying any field, so a rejected storage-limit change can't
+  // partially apply the other (open) fields. Raising the cap has billing consequences → System
+  // Admin only; every other field stays open to all admins.
+  if (typeof body.storageLimitGb === "number" && !(await isSystemAdmin(db, c.get("authUserId")))) {
+    throw forbidden("Only a System Admin can change the storage limit");
+  }
   if (typeof body.projectName === "string") {
     await setSetting(db, "project_name", body.projectName.trim() || APP_NAME);
   }
@@ -76,5 +90,8 @@ settingsRouter.patch("/", async (c) => {
   if (typeof body.formsEnabled === "boolean") {
     await setFormsEnabled(db, body.formsEnabled);
   }
-  return c.json(await readSettings(db));
+  if (typeof body.storageLimitGb === "number") {
+    await setStorageLimitGb(db, body.storageLimitGb);
+  }
+  return c.json(await readSettings(db, c.get("authUserId")));
 });

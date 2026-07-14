@@ -35,6 +35,19 @@ export const MAX_LOGO_BYTES = 256 * 1024; // 256 KB
  */
 export const MAX_LOGO_DATA_URL_BYTES = 512 * 1024;
 
+/** Bytes in one gibibyte (1024³) — the unit `formatBytes` and the storage limit both use. */
+export const BYTES_PER_GB = 1024 ** 3;
+
+/**
+ * Default per-deployment media storage cap, in GB. R2 is usage-billed (effectively unbounded),
+ * so this soft cap blocks uploads once exceeded to keep the vendor's Cloudflare bill in check.
+ * Adjustable in-app by a System Admin; enforcement is live on every deployment immediately.
+ */
+export const DEFAULT_STORAGE_LIMIT_GB = 5;
+
+/** Upper bound accepted when a System Admin edits the storage cap (raising it has billing cost). */
+export const MAX_STORAGE_LIMIT_GB = 1024;
+
 /** Delivery list pagination ceiling. */
 export const MAX_DELIVERY_LIMIT = 100;
 

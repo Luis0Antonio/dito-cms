@@ -204,6 +204,11 @@ export const es = {
   "media.loading": "Cargando…",
   "media.count": "{count} de {total}",
   "media.dropToUpload": "Suelta para subir",
+  "media.storageUsed": "{used} de {limit}",
+  "media.storageLimitTitle": "No queda espacio de almacenamiento",
+  "media.storageLimitUsage": "Has usado {used} de {limit}.",
+  "media.storageLimitBody":
+    "Elimina archivos para liberar espacio. Tu uso se muestra arriba, en la biblioteca multimedia.",
 
   // Media - WebP conversion (in-browser, before upload)
   "media.webp.title": "Convertir a WebP",
@@ -304,6 +309,13 @@ export const es = {
   "settings.general.storeEnable": "Habilitar el módulo de tienda",
   "settings.general.storeHint":
     "Activa la tienda para gestionar productos, categorías y catálogo. Mientras esté desactivada, tu contenido no se ve afectado.",
+  "settings.general.storage": "Almacenamiento",
+  "settings.general.storageUsage": "{used} de {limit} usado",
+  "settings.general.storageLimit": "Límite de almacenamiento (GB)",
+  "settings.general.storageLimitHint":
+    "Las subidas de multimedia se bloquean cuando el almacenamiento alcanza este límite.",
+  "settings.general.storageReadonly":
+    "Solo un Administrador del Sistema puede cambiar este límite.",
 
   // Settings - users
   "settings.users.invite": "Solo por invitación. Todos los usuarios tienen acceso de administrador.",

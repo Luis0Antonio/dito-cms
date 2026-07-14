@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
 import { isApiError } from "@/app/api/client";
 import {
@@ -8,7 +10,11 @@ import {
   uploadImage,
   uploadPart,
 } from "@/app/api/media";
-import type { MediaDTO, MediaKind, UploadedPart } from "@/shared/api-types";
+import { settingsKeys } from "@/app/api/settings";
+import { useI18n } from "@/app/i18n";
+import { formatBytes } from "@/app/lib/format";
+import { BYTES_PER_GB } from "@/shared/constants";
+import type { MediaDTO, MediaKind, ProjectSettings, UploadedPart } from "@/shared/api-types";
 
 export type UploadStatus = "uploading" | "success" | "error" | "canceled";
 
@@ -112,6 +118,8 @@ export interface UseMediaUpload {
  * `onUploaded` fires once per successfully completed file (consumer invalidates / auto-selects).
  */
 export function useMediaUpload(options?: { onUploaded?: (media: MediaDTO) => void }): UseMediaUpload {
+  const { t } = useI18n();
+  const queryClient = useQueryClient();
   const [tasks, setTasks] = useState<UploadTask[]>([]);
   const controls = useRef(new Map<string, Control>());
   const mounted = useRef(true);
@@ -197,9 +205,23 @@ export function useMediaUpload(options?: { onUploaded?: (media: MediaDTO) => voi
       } catch (e) {
         if (ctl.canceled || isAbort(e)) return;
         update(id, { status: "error", error: errorMessage(e) });
+        // A blocked-by-storage-limit upload must not fail silently — surface it here (the shared
+        // hook), so it toasts from every upload surface (Media page, entry-editor picker). The
+        // picker has no upload queue, so this toast is its only feedback: include the live
+        // used/limit from the settings cache, then point at the Media library usage bar.
+        if (isApiError(e) && e.code === "storage_limit_exceeded") {
+          const s = queryClient.getQueryData<ProjectSettings>(settingsKeys.all);
+          const description = s
+            ? `${t("media.storageLimitUsage", {
+                used: formatBytes(s.storageUsedBytes),
+                limit: formatBytes(s.storageLimitGb * BYTES_PER_GB),
+              })} ${t("media.storageLimitBody")}`
+            : t("media.storageLimitBody");
+          toast.error(t("media.storageLimitTitle"), { description });
+        }
       }
     },
-    [runImage, runVideo, update],
+    [runImage, runVideo, update, t, queryClient],
   );
 
   const enqueue = useCallback(

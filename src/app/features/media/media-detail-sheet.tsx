@@ -11,6 +11,7 @@ import {
   mediaUsageQueryOptions,
   updateMedia,
 } from "@/app/api/media";
+import { settingsKeys } from "@/app/api/settings";
 import { isApiError } from "@/app/api/client";
 import {
   Sheet,
@@ -82,6 +83,8 @@ export function MediaDetailSheet({ media, open, onOpenChange }: MediaDetailSheet
     mutationFn: () => deleteMedia(media!.id),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: mediaKeys.lists() });
+      // Freed bytes change the SUM — refresh the storage usage bar / settings figures.
+      void queryClient.invalidateQueries({ queryKey: settingsKeys.all });
       toast.success("Media deleted");
       setConfirmDelete(false);
       onOpenChange(false);

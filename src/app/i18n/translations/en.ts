@@ -206,6 +206,11 @@ export const en: Record<TranslationKey, string> = {
   "media.loading": "Loading…",
   "media.count": "{count} of {total}",
   "media.dropToUpload": "Drop to upload",
+  "media.storageUsed": "{used} of {limit}",
+  "media.storageLimitTitle": "No storage space left",
+  "media.storageLimitUsage": "You've used {used} of {limit}.",
+  "media.storageLimitBody":
+    "Delete files to free space. Your usage is shown at the top of the Media library.",
 
   // Media - WebP conversion (in-browser, before upload)
   "media.webp.title": "Convert to WebP",
@@ -306,6 +311,13 @@ export const en: Record<TranslationKey, string> = {
   "settings.general.storeEnable": "Enable the Store module",
   "settings.general.storeHint":
     "Turn on the store to manage products, categories and your catalog. While it's off, your content is unaffected.",
+  "settings.general.storage": "Storage",
+  "settings.general.storageUsage": "{used} of {limit} used",
+  "settings.general.storageLimit": "Storage limit (GB)",
+  "settings.general.storageLimitHint":
+    "Media uploads are blocked once storage reaches this limit.",
+  "settings.general.storageReadonly":
+    "Only a System Admin can change this limit.",
 
   // Settings - users
   "settings.users.invite": "Invite-only. Every user has full admin access.",

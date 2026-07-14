@@ -1,9 +1,17 @@
-import { and, asc, count, desc, eq, inArray, like, or, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, like, or, sql, type SQL } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import type { DrizzleDb } from "../db/client";
 import { collections, entries, media, type MediaRow } from "../db/schema";
-import { badRequest, conflict, notFound, unsupportedMediaType, validationError } from "../lib/errors";
+import {
+  badRequest,
+  conflict,
+  notFound,
+  storageLimitExceeded,
+  unsupportedMediaType,
+  validationError,
+} from "../lib/errors";
+import { getStorageLimitBytes } from "./settings";
 import { getStorageProvider, type PutResult } from "./storage";
 
 import {
@@ -145,6 +153,21 @@ export async function getMedia(db: DrizzleDb, id: string): Promise<MediaDTO> {
   return toMediaDTO(await findMedia(db, id));
 }
 
+// --- storage usage / limit enforcement ---------------------------------------
+
+/**
+ * Total bytes of stored media (SUM over every row, including in-flight `uploading` videos so
+ * their declared size is reserved). Powers the usage indicator and the upload storage guard.
+ * A soft cap: concurrent uploads can race past a single check — acceptable by design.
+ */
+export async function getStorageUsedBytes(db: DrizzleDb): Promise<number> {
+  const row = await db
+    .select({ total: sql<number>`COALESCE(SUM(${media.size}), 0)` })
+    .from(media)
+    .get();
+  return row?.total ?? 0;
+}
+
 // --- direct image upload -----------------------------------------------------
 
 export interface ImageUploadInput {
@@ -171,6 +194,14 @@ export async function uploadImage(
     throw badRequest("Image exceeds the 25 MB limit");
   }
 
+  // Storage-limit guard: reject up front when the declared size would exceed the cap; the
+  // post-put re-check below covers a missing/under-declared Content-Length.
+  const limitBytes = await getStorageLimitBytes(db);
+  const used = await getStorageUsedBytes(db);
+  if (input.declaredLength !== null && used + input.declaredLength > limitBytes) {
+    throw storageLimitExceeded(used, limitBytes);
+  }
+
   const filename = sanitizeFilename(input.filename);
   const id = nanoid();
   const provider = getStorageProvider(env);
@@ -185,6 +216,10 @@ export async function uploadImage(
   if (result.bytes > MAX_IMAGE_BYTES) {
     await provider.delete({ storageKey: result.storageKey, kind: "image" });
     throw badRequest("Image exceeds the 25 MB limit");
+  }
+  if (used + result.bytes > limitBytes) {
+    await provider.delete({ storageKey: result.storageKey, kind: "image" });
+    throw storageLimitExceeded(used, limitBytes);
   }
 
   const now = Date.now();
@@ -265,6 +300,14 @@ export async function uploadMediaFromUrl(
     throw badRequest(`Asset exceeds the ${capLabel} limit`);
   }
 
+  // Storage-limit guard (also covers the MCP upload_media_from_url tool): reject up front on a
+  // known length; the post-put re-check below covers a missing/under-declared Content-Length.
+  const limitBytes = await getStorageLimitBytes(db);
+  const used = await getStorageUsedBytes(db);
+  if (Number.isFinite(declared) && used + declared > limitBytes) {
+    throw storageLimitExceeded(used, limitBytes);
+  }
+
   const fromPath = decodeURIComponent(parsed.pathname.split("/").pop() ?? "");
   const filename = sanitizeFilename(input.filename || fromPath || `download-${kind}`);
   const id = nanoid();
@@ -280,6 +323,10 @@ export async function uploadMediaFromUrl(
   if (result.bytes > cap) {
     await provider.delete({ storageKey: result.storageKey, kind });
     throw badRequest(`Asset exceeds the ${capLabel} limit`);
+  }
+  if (used + result.bytes > limitBytes) {
+    await provider.delete({ storageKey: result.storageKey, kind });
+    throw storageLimitExceeded(used, limitBytes);
   }
 
   const now = Date.now();
@@ -336,6 +383,14 @@ export async function initVideoUpload(
   if (provider.name === "cloudinary" && input.size > MAX_CLOUDINARY_VIDEO_BYTES) {
     const limitMb = Math.floor(MAX_CLOUDINARY_VIDEO_BYTES / (1024 * 1024));
     throw badRequest(`Video exceeds the ${limitMb} MB limit for Cloudinary uploads`);
+  }
+
+  // Storage-limit guard: reserve the declared size up front so a multipart session can't start
+  // when it would blow the cap. completeVideoUpload re-checks against the real assembled bytes.
+  const limitBytes = await getStorageLimitBytes(db);
+  const used = await getStorageUsedBytes(db);
+  if (used + input.size > limitBytes) {
+    throw storageLimitExceeded(used, limitBytes);
   }
 
   const filename = sanitizeFilename(input.filename);
@@ -471,9 +526,10 @@ export async function completeVideoUpload(
       }
     : undefined;
 
+  const provider = getStorageProvider(env);
   let result: PutResult;
   try {
-    result = await getStorageProvider(env).completeMultipart({
+    result = await provider.completeMultipart({
       session: { uploadId: input.uploadId, storageKey: row.r2Key },
       input: { id: row.id, filename: row.filename, mime: row.mime, kind: "video" },
       parts,
@@ -481,6 +537,20 @@ export async function completeVideoUpload(
     });
   } catch {
     throw badRequest("Could not assemble the upload — parts are missing or the wrong size");
+  }
+
+  // Storage-limit re-check: init reserved the *declared* size, but this completion would overwrite
+  // it with the real assembled bytes — a client that under-declared could overshoot by up to the
+  // per-file cap. The row's declared size is already in the SUM, so subtract it before comparing.
+  // (For Cloudinary, uploadVideoPart already wrote the real bytes onto the row, so this reduces to
+  // the current total — still correct.)
+  const limitBytes = await getStorageLimitBytes(db);
+  const used = await getStorageUsedBytes(db);
+  const usedExcludingThis = used - row.size;
+  if (usedExcludingThis + result.bytes > limitBytes) {
+    await provider.delete({ storageKey: row.r2Key, kind: "video" });
+    await db.delete(media).where(eq(media.id, mediaId)).run();
+    throw storageLimitExceeded(usedExcludingThis, limitBytes);
   }
 
   const now = Date.now();
