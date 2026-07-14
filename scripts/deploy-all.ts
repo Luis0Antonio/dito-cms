@@ -14,6 +14,7 @@ import {
   buildOnce,
   client,
   CLIENTS_DIR,
+  clientProvider,
   deployClient,
   parseArgs,
   useAccount,
@@ -58,6 +59,7 @@ function main(): void {
     console.warn(`\n──────── ${name} ────────`);
     try {
       const c = client(name);
+      console.warn(`  storage: ${clientProvider(c)}`);
       applyMigrations(c);
       const url = deployClient(c);
       results.push({ worker: c.worker, url, ok: true });
