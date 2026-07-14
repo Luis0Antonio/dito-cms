@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useForm, useWatch, type Control } from "react-hook-form";
-import { ChevronLeftIcon, PlusIcon, XIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronLeftIcon, PlusIcon, XIcon } from "lucide-react";
 import { ZodError } from "zod";
 
 import { FIELD_TYPE_ICONS } from "../field-type-meta";
@@ -26,7 +26,12 @@ import {
 import { Input } from "@/app/components/ui/input";
 import { Textarea } from "@/app/components/ui/textarea";
 import { Switch } from "@/app/components/ui/switch";
-import { ToggleGroup, ToggleGroupItem } from "@/app/components/ui/toggle-group";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/app/components/ui/dropdown-menu";
 import {
   Select,
   SelectContent,
@@ -573,35 +578,67 @@ function TypeOptions({
           <FormField
             control={control}
             name={"options.targetCollections" as never}
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Target collections</FormLabel>
-                <FormDescription>
-                  Which collections this field can link to. Leave all unselected to allow any.
-                </FormDescription>
-                <FormControl>
-                  {availableCollections.length > 0 ? (
-                    <ToggleGroup
-                      type="multiple"
-                      variant="outline"
-                      size="sm"
-                      className="flex-wrap justify-start"
-                      value={Array.isArray(field.value) ? (field.value as string[]) : []}
-                      onValueChange={(v) => field.onChange(v)}
-                    >
-                      {availableCollections.map((c) => (
-                        <ToggleGroupItem key={c.slug} value={c.slug} className="px-3">
-                          {c.name}
-                        </ToggleGroupItem>
-                      ))}
-                    </ToggleGroup>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">No other collections yet — any is allowed.</p>
-                  )}
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
+            render={({ field }) => {
+              const selected = Array.isArray(field.value) ? (field.value as string[]) : [];
+              const selectedNames = availableCollections
+                .filter((c) => selected.includes(c.slug))
+                .map((c) => c.name);
+              return (
+                <FormItem>
+                  <FormLabel>Target collections</FormLabel>
+                  <FormDescription>
+                    Which collections this field can link to. Leave all unselected to allow any.
+                  </FormDescription>
+                  <FormControl>
+                    {availableCollections.length > 0 ? (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="w-full justify-between font-normal"
+                          >
+                            <span
+                              className={cn(
+                                "truncate",
+                                selectedNames.length === 0 && "text-muted-foreground",
+                              )}
+                            >
+                              {selectedNames.length === 0 ? "Any collection" : selectedNames.join(", ")}
+                            </span>
+                            <ChevronDownIcon className="size-4 shrink-0 opacity-50" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                          align="start"
+                          className="w-[var(--radix-dropdown-menu-trigger-width)]"
+                        >
+                          {availableCollections.map((c) => (
+                            <DropdownMenuCheckboxItem
+                              key={c.slug}
+                              checked={selected.includes(c.slug)}
+                              onCheckedChange={(checked) =>
+                                field.onChange(
+                                  checked
+                                    ? [...selected, c.slug]
+                                    : selected.filter((s) => s !== c.slug),
+                                )
+                              }
+                              onSelect={(e) => e.preventDefault()}
+                            >
+                              {c.name}
+                            </DropdownMenuCheckboxItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">No other collections yet — any is allowed.</p>
+                    )}
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              );
+            }}
           />
           <SwitchRow
             control={control}
