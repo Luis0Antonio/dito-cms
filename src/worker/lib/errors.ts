@@ -2,6 +2,7 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { ZodError } from "zod";
 
 import type { ApiErrorBody, ApiErrorCode } from "@/shared/api-types";
+import { BYTES_PER_GB } from "@/shared/constants";
 
 /** Thrown anywhere in the worker; the global error handler renders the envelope. */
 export class ApiError extends Error {
@@ -41,6 +42,20 @@ export const payloadTooLarge = (message: string): ApiError =>
   new ApiError(413, "payload_too_large", message);
 export const unsupportedMediaType = (message: string): ApiError =>
   new ApiError(415, "unsupported_media_type", message);
+
+/**
+ * A media upload would push stored media past the deployment's storage limit. 507 (Insufficient
+ * Storage) rather than 413 — proxies special-case 413 (request-entity-too-large) — carrying the
+ * current used/limit figures so the caller can report where to free space.
+ */
+export const storageLimitExceeded = (usedBytes: number, limitBytes: number): ApiError => {
+  const gb = (n: number): string => (n / BYTES_PER_GB).toFixed(2);
+  return new ApiError(
+    507,
+    "storage_limit_exceeded",
+    `Storage limit reached (${gb(usedBytes)} GB of ${gb(limitBytes)} GB used). Delete files to free space.`,
+  );
+};
 
 /** Flatten a ZodError into the fieldErrors map keyed by dotted path. */
 export function zodToFieldErrors(err: ZodError): Record<string, string> {

@@ -25,6 +25,8 @@ export type ApiErrorCode =
   | "rate_limited"
   /** 503 from checkout: a paymentToken was sent but no payment gateway is configured+enabled. */
   | "payments_unavailable"
+  /** 507 from a media upload: it would push stored media past the deployment's storage limit. */
+  | "storage_limit_exceeded"
   | "internal_error";
 
 /** Health/setup status returned by the public bootstrap endpoints. */
@@ -59,6 +61,20 @@ export interface ProjectSettings {
    * SPA forms nav/route. Instances that don't use forms leave this off and are unaffected.
    */
   formsEnabled: boolean;
+  /**
+   * Per-deployment media storage cap, in GB (1 GB = 1024³ bytes). Uploads are blocked once
+   * stored media would exceed it. Visible (read-only) to every admin; only a System Admin may
+   * change it (see `canEditStorageLimit`).
+   */
+  storageLimitGb: number;
+  /** Total bytes of media currently stored (SUM over the media table), for the usage indicator. */
+  storageUsedBytes: number;
+  /**
+   * Whether the CURRENT caller is a System Admin and may PATCH `storageLimitGb`. Computed
+   * per-request from the D1-only System Admin allowlist — the read-only figures above are shown
+   * to everyone; this only toggles the editable input. The server re-checks on PATCH regardless.
+   */
+  canEditStorageLimit: boolean;
 }
 
 // --- Deploy hook -------------------------------------------------------------

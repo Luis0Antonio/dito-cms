@@ -113,3 +113,32 @@ pattern pointed at `entries`. Preserve this design; do **not** regress it:
   id-based design.
 - `reference` is **not** enabled on product custom fields — `product_fields`' CHECK is left unwidened
   and `setProductFields`/`normalizeField` rejects it explicitly.
+
+## Storage limit + System Admin role
+
+A per-deployment media **storage cap** (default 5 GB, `DEFAULT_STORAGE_LIMIT_GB`) blocks uploads once
+stored media would exceed it, so an R2 client can't silently run up the vendor's Cloudflare bill.
+Preserve this design; do **not** regress it:
+
+- **System Admin is a D1-only allowlist, NOT the `user.role` column.** Membership lives solely in the
+  `settings` row `system_admin_user_ids` (comma-separated user ids); `isSystemAdmin` (`services/roles.ts`)
+  reads *only* that row. No route writes an arbitrary settings key (every `setSetting` call passes a
+  fixed literal key), so the allowlist is unreachable through the UI/API — grantable **only** by a direct
+  D1 write (`INSERT … INTO settings ('system_admin_user_ids', <userId>) …`). This is deliberate: a regular
+  admin *can* call better-auth's `admin.setRole` and even write `role='system_admin'`, but that column is
+  never consulted, so it grants nothing. **Never gate on `user.role`, never add a hook/`adminRoles` entry
+  for it, and never expose a route that writes `system_admin_user_ids`** — any of these re-opens escalation.
+- **The limit is a `settings` value (`storage_limit_gb`), not a migration.** Default is in code, so
+  enforcement is live on every deployment immediately. `setStorageLimitGb` validates finite / >0 / ≤1024.
+- **Enforcement is a soft guard in the media *service* layer** (`services/media.ts`) — the one choke point
+  covering both the SPA and the MCP `upload_media_from_url` tool. Four checkpoints (`uploadImage`,
+  `uploadMediaFromUrl`, `initVideoUpload`, `completeVideoUpload`) reject with **507** `storage_limit_exceeded`
+  (not 413 — proxies special-case it). Concurrent uploads can race past the `SUM(size)` check; acceptable.
+  `completeVideoUpload` subtracts the in-flight row's already-counted declared `size` before re-checking
+  the real assembled bytes (a client under-declaring at init could otherwise overshoot). Delete frees bytes
+  for free — usage is `SUM(size)` over `media`, so a removed row self-corrects; no counter to maintain.
+- **Usage + limit are read-only to every admin; only a System Admin PATCHes the limit** (field-level gate
+  in `admin-settings.ts` — other settings fields stay open). The GET payload's `canEditStorageLimit` only
+  toggles the editable input; the server re-checks on PATCH → 403. A usage bar on the Media page is the
+  surface the blocked-upload toast points to; keep it fresh by invalidating `settingsKeys.all` on upload
+  success and media delete.

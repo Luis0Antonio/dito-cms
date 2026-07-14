@@ -2,6 +2,9 @@ import { eq } from "drizzle-orm";
 
 import type { DrizzleDb } from "../db/client";
 import { settings } from "../db/schema";
+import { validationError } from "../lib/errors";
+
+import { BYTES_PER_GB, DEFAULT_STORAGE_LIMIT_GB, MAX_STORAGE_LIMIT_GB } from "@/shared/constants";
 
 export async function getSetting(db: DrizzleDb, key: string): Promise<string | undefined> {
   const row = await db.select().from(settings).where(eq(settings.key, key)).get();
@@ -49,6 +52,35 @@ export async function isFormsEnabled(db: DrizzleDb): Promise<boolean> {
 /** Enable or disable the contact forms module. */
 export async function setFormsEnabled(db: DrizzleDb, enabled: boolean): Promise<void> {
   await setSetting(db, FORMS_ENABLED_KEY, enabled ? "true" : "false");
+}
+
+// --- Media storage limit -----------------------------------------------------
+// Per-deployment media cap (see DEFAULT_STORAGE_LIMIT_GB). Stored as a plain GB number-string
+// under this key; absent → the in-code default, so enforcement is live before anyone sets it.
+
+export const STORAGE_LIMIT_GB_KEY = "storage_limit_gb";
+
+/** The configured storage cap in GB, or the default when unset/unparseable. */
+export async function getStorageLimitGb(db: DrizzleDb): Promise<number> {
+  const raw = await getSetting(db, STORAGE_LIMIT_GB_KEY);
+  if (raw === undefined) return DEFAULT_STORAGE_LIMIT_GB;
+  const gb = Number(raw);
+  return Number.isFinite(gb) && gb > 0 ? gb : DEFAULT_STORAGE_LIMIT_GB;
+}
+
+/** The configured storage cap in bytes (getStorageLimitGb × 1024³). */
+export async function getStorageLimitBytes(db: DrizzleDb): Promise<number> {
+  return (await getStorageLimitGb(db)) * BYTES_PER_GB;
+}
+
+/** Set the storage cap (GB). Validates finite / > 0 / ≤ MAX; decimals are allowed. */
+export async function setStorageLimitGb(db: DrizzleDb, gb: number): Promise<void> {
+  if (!Number.isFinite(gb) || gb <= 0 || gb > MAX_STORAGE_LIMIT_GB) {
+    throw validationError(`\`storageLimitGb\` must be a number between 0 and ${MAX_STORAGE_LIMIT_GB}`, {
+      storageLimitGb: `Must be greater than 0 and at most ${MAX_STORAGE_LIMIT_GB} GB`,
+    });
+  }
+  await setSetting(db, STORAGE_LIMIT_GB_KEY, String(gb));
 }
 
 function generateSecret(): string {

@@ -9,14 +9,22 @@ import {
   settingsKeys,
   updateProjectSettings,
 } from "@/app/api/settings";
-import { APP_VERSION, MAX_LOGO_BYTES, REPO_URL } from "@/shared/constants";
+import {
+  APP_VERSION,
+  BYTES_PER_GB,
+  MAX_LOGO_BYTES,
+  MAX_STORAGE_LIMIT_GB,
+  REPO_URL,
+} from "@/shared/constants";
 import type { ProjectSettings } from "@/shared/api-types";
 import { useI18n, type Locale } from "@/app/i18n";
 import { useTheme, type Theme } from "@/app/lib/theme";
+import { formatBytes } from "@/app/lib/format";
 import { Button } from "@/app/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/app/components/ui/card";
 import { Input } from "@/app/components/ui/input";
 import { Label } from "@/app/components/ui/label";
+import { Progress } from "@/app/components/ui/progress";
 import {
   Select,
   SelectContent,
@@ -63,11 +71,13 @@ export function GeneralSettingsPage(): React.ReactElement {
 
   const [name, setName] = useState("");
   const [logo, setLogo] = useState<string | null>(null);
+  const [storageLimit, setStorageLimit] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (data) {
       setName(data.projectName);
       setLogo(data.logo);
+      setStorageLimit(String(data.storageLimitGb));
     }
   }, [data]);
 
@@ -122,12 +132,36 @@ export function GeneralSettingsPage(): React.ReactElement {
     onError: (e) => toast.error(e instanceof Error ? e.message : t("settings.general.saveError")),
   });
 
+  // Storage limit — System Admin only (the server re-checks and 403s otherwise). Writing the
+  // result back into the cache updates the Media page usage bar immediately.
+  const saveStorage = useMutation({
+    mutationFn: (gb: number) => updateProjectSettings({ storageLimitGb: gb }),
+    onSuccess: (result) => {
+      queryClient.setQueryData<ProjectSettings>(settingsKeys.all, result);
+      setStorageLimit(String(result.storageLimitGb));
+      toast.success(t("settings.general.saved"));
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : t("settings.general.saveError")),
+  });
+
   const origin = window.location.origin;
   const deliveryBaseUrl = `${origin}/api/v1`;
   const mcpUrl = `${origin}/mcp`;
   const nameDirty = data ? name.trim() !== data.projectName && name.trim() !== "" : false;
   const logoDirty = data ? logo !== data.logo : false;
   const dirty = nameDirty || logoDirty;
+
+  const storageUsedBytes = data?.storageUsedBytes ?? 0;
+  const storageLimitBytes = (data?.storageLimitGb ?? 0) * BYTES_PER_GB;
+  const storagePct =
+    storageLimitBytes > 0 ? Math.min(100, Math.round((storageUsedBytes / storageLimitBytes) * 100)) : 0;
+  const parsedStorageLimit = Number(storageLimit);
+  const storageDirty =
+    data != null &&
+    storageLimit.trim() !== "" &&
+    Number.isFinite(parsedStorageLimit) &&
+    parsedStorageLimit > 0 &&
+    parsedStorageLimit !== data.storageLimitGb;
 
   return (
     <div className="space-y-6">
@@ -317,6 +351,64 @@ export function GeneralSettingsPage(): React.ReactElement {
               disabled={!data || toggleStore.isPending}
             />
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">{t("settings.general.storage")}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {isPending ? (
+            <Skeleton className="h-10 w-full max-w-sm" />
+          ) : isError ? (
+            <ErrorState error={error} onRetry={() => void refetch()} />
+          ) : (
+            <div className="max-w-sm space-y-4">
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">
+                    {t("settings.general.storageUsage", {
+                      used: formatBytes(storageUsedBytes),
+                      limit: formatBytes(storageLimitBytes),
+                    })}
+                  </span>
+                  <span className="font-medium">{storagePct}%</span>
+                </div>
+                <Progress value={storagePct} className="h-1.5" />
+              </div>
+
+              {data?.canEditStorageLimit ? (
+                <form
+                  className="space-y-1.5"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (storageDirty) saveStorage.mutate(parsedStorageLimit);
+                  }}
+                >
+                  <Label htmlFor="storage-limit">{t("settings.general.storageLimit")}</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="storage-limit"
+                      type="number"
+                      min={1}
+                      max={MAX_STORAGE_LIMIT_GB}
+                      step="any"
+                      value={storageLimit}
+                      onChange={(e) => setStorageLimit(e.target.value)}
+                      className="max-w-32"
+                    />
+                    <Button type="submit" size="sm" disabled={!storageDirty || saveStorage.isPending}>
+                      {saveStorage.isPending ? t("settings.general.saving") : t("settings.general.save")}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{t("settings.general.storageLimitHint")}</p>
+                </form>
+              ) : (
+                <p className="text-xs text-muted-foreground">{t("settings.general.storageReadonly")}</p>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 

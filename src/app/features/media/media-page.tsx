@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ImageIcon, UploadIcon } from "lucide-react";
 
 import { MediaGrid } from "./media-grid";
@@ -9,16 +9,20 @@ import { UploadQueue } from "./upload-queue";
 import { useWebpGate, WebpConvertDialog } from "./webp-convert-dialog";
 
 import { mediaKeys, mediaListInfiniteQueryOptions } from "@/app/api/media";
+import { projectSettingsQueryOptions, settingsKeys } from "@/app/api/settings";
 import { useI18n } from "@/app/i18n";
 import { PageHeader } from "@/app/components/common/page-header";
 import { EmptyState } from "@/app/components/common/empty-state";
 import { ErrorState } from "@/app/components/common/error-state";
 import { Button } from "@/app/components/ui/button";
 import { Input } from "@/app/components/ui/input";
+import { Progress } from "@/app/components/ui/progress";
 import { Skeleton } from "@/app/components/ui/skeleton";
 import { ToggleGroup, ToggleGroupItem } from "@/app/components/ui/toggle-group";
 import { useDebounce } from "@/app/hooks/use-debounce";
 import { useInfiniteScroll } from "@/app/hooks/use-infinite-scroll";
+import { formatBytes } from "@/app/lib/format";
+import { BYTES_PER_GB } from "@/shared/constants";
 import type { MediaDTO, MediaKind } from "@/shared/api-types";
 
 type KindFilter = "all" | MediaKind;
@@ -54,6 +58,15 @@ export function MediaPage(): React.ReactElement {
   const items = query.data?.pages.flatMap((p) => p.media) ?? [];
   const total = query.data?.pages[0]?.total ?? 0;
 
+  // Storage usage indicator (used/limit). Visible to everyone — the surface the blocked-upload
+  // toast points to. The limit lives on the shared project settings; usage self-corrects on delete.
+  const settings = useQuery(projectSettingsQueryOptions);
+  const storageLimitBytes = settings.data ? settings.data.storageLimitGb * BYTES_PER_GB : 0;
+  const storagePct =
+    storageLimitBytes > 0
+      ? Math.min(100, Math.round((settings.data!.storageUsedBytes / storageLimitBytes) * 100))
+      : 0;
+
   useInfiniteScroll(sentinel, {
     hasNextPage: query.hasNextPage,
     isFetching: query.isFetchingNextPage,
@@ -61,7 +74,11 @@ export function MediaPage(): React.ReactElement {
   });
 
   const upload = useMediaUpload({
-    onUploaded: () => void queryClient.invalidateQueries({ queryKey: mediaKeys.lists() }),
+    // Refresh the media list and the storage usage bar (SUM changed) as each upload lands.
+    onUploaded: () => {
+      void queryClient.invalidateQueries({ queryKey: mediaKeys.lists() });
+      void queryClient.invalidateQueries({ queryKey: settingsKeys.all });
+    },
   });
   const gate = useWebpGate(upload.enqueue);
   const request = gate.request;
@@ -150,6 +167,17 @@ export function MediaPage(): React.ReactElement {
             </ToggleGroupItem>
           ))}
         </ToggleGroup>
+        {settings.data ? (
+          <div className="ml-auto flex w-full items-center gap-2 sm:w-56">
+            <Progress value={storagePct} className="h-1.5 flex-1" />
+            <span className="shrink-0 text-xs text-muted-foreground">
+              {t("media.storageUsed", {
+                used: formatBytes(settings.data.storageUsedBytes),
+                limit: formatBytes(storageLimitBytes),
+              })}
+            </span>
+          </div>
+        ) : null}
       </div>
 
       {query.isPending ? (
