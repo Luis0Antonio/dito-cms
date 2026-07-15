@@ -20,6 +20,7 @@ Managed by the fleet scripts — you rarely edit them by hand:
 bun run new-client <name>     # provision D1 (+ R2 unless --cloudinary), write this config, migrate, deploy
 bun run deploy-client <name>  # redeploy one client (migrate + build + deploy)
 bun run deploy-all            # build once, then migrate + redeploy every client here
+bun run studio-client <name>  # open Drizzle Studio on this client's remote D1 (needs a D1:Edit API token)
 ```
 
 See the repo README, section **"Managing multiple clients"**, for the full workflow.

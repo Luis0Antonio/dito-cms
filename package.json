@@ -12,6 +12,7 @@
     "new-client": "tsx scripts/new-client.ts",
     "deploy-client": "tsx scripts/deploy-client.ts",
     "deploy-all": "tsx scripts/deploy-all.ts",
+    "studio-client": "tsx scripts/studio-client.ts",
     "seed": "tsx scripts/seed.ts",
     "db:generate": "drizzle-kit generate",
     "db:auth": "bunx @better-auth/cli@latest generate --config auth-cli.ts --output src/worker/db/auth-schema.ts -y",

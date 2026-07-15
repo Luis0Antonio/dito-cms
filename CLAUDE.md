@@ -25,6 +25,15 @@ account when the login has more than one — required in non-interactive runs wi
 Add `--cloudinary` to `new-client` to put that client's media on Cloudinary instead of R2 (per-client,
 from the same shared build); no flag → R2, exactly as before.
 
+A fourth helper, `bun run studio-client <name>`, opens Drizzle Studio on one client's **remote** D1
+(its `database_id` read from `clients/<name>.jsonc`) via drizzle-kit's `d1-http` driver and the
+env-only `drizzle.config.remote.ts` — it provisions and deploys **nothing**. It needs
+`CLOUDFLARE_ACCOUNT_ID` (`--account`/env/`.env`) and a **`CLOUDFLARE_D1_TOKEN`** API token with
+`D1:Edit` — wrangler's OAuth login can't be reused for the HTTP API, and `studio-client` normalizes a
+`CLOUDFLARE_API_TOKEN` fallback to that name before spawning. Keep the base `drizzle.config.ts` (local
+miniflare, `bun run db:studio`) untouched; the remote config is a separate file so the two never mix.
+Studio edits are **live production** data — no local copy, no undo.
+
 ### How it works — don't break these
 
 - **Deploy reuses ONE `vite build`.** The `@cloudflare/vite-plugin` bakes the config into
