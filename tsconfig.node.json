@@ -10,5 +10,5 @@
     "noEmit": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["vite.config.ts", "drizzle.config.ts", "scripts"]
+  "include": ["vite.config.ts", "drizzle.config.ts", "drizzle.config.remote.ts", "scripts"]
 }

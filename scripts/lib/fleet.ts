@@ -163,6 +163,13 @@ export function clientProvider(c: Client): Provider {
   return /"r2_buckets"\s*:/.test(readFileSync(c.config, "utf8")) ? "r2" : "cloudinary";
 }
 
+/** Read a client's remote D1 `database_id` from its config. Throws if absent (regenerate with new-client). */
+export function clientDatabaseId(c: Client): string {
+  const id = readKey(readFileSync(c.config, "utf8"), "database_id");
+  if (!id) throw new Error(`No database_id in ${c.config} — regenerate it with new-client.`);
+  return id;
+}
+
 /**
  * Write clients/<name>.jsonc from the base wrangler.jsonc, swapping in the client's name
  * and resource ids. Idempotent — overwrites/refreshes on re-run. Rewrites `database_id`
@@ -299,8 +306,7 @@ interface GeneratedConfig {
 export function patchDeployConfig(c: Client): void {
   const generated = generatedDeployConfig();
   const cfg = JSON.parse(readFileSync(generated, "utf8")) as GeneratedConfig;
-  const databaseId = readKey(readFileSync(c.config, "utf8"), "database_id");
-  if (!databaseId) throw new Error(`No database_id in ${c.config} — regenerate it with new-client.`);
+  const databaseId = clientDatabaseId(c);
 
   cfg.name = c.worker;
   if (cfg.d1_databases?.[0]) {

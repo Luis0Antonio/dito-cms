@@ -158,8 +158,9 @@ the Worker never touches the key at boot.
 | `bun run new-client <name>` | Provision **and** deploy a **new** client | ✅ D1 (+ R2 unless `--cloudinary`) |
 | `bun run deploy-client <name>` | Redeploy **one existing** client | ❌ must exist |
 | `bun run deploy-all` | Redeploy **every** client (one shared build) | ❌ must exist |
+| `bun run studio-client <name>` | Open Drizzle Studio on **one client's remote D1** | ❌ reads/writes live data |
 
-All three accept `--account <id>` for multi-account logins (see the callout below). Add `--cloudinary`
+All accept `--account <id>` for multi-account logins (see the callout below). Add `--cloudinary`
 to `new-client` to put a client's media on Cloudinary instead of R2 (see [Per-client media storage](#per-client-media-storage)).
 
 Running Dito for several clients? You do **not** need a clone — or a GitHub repo — per client.
@@ -211,6 +212,36 @@ Per-client knobs are the same as a single instance: the [auth secret](#auth-secr
 auto-generates (or set `BETTER_AUTH_SECRET` per client), [Workers Paid](#plan-limits--notes) is
 recommended for production, and you set any per-client secret with
 `wrangler secret put <NAME> -c clients/<name>.jsonc`.
+
+### Inspecting a client's database
+
+Open [Drizzle Studio](https://orm.drizzle.team/drizzle-studio/overview) against **one client's
+live remote D1** — the exact rows that client's Worker serves. The D1 id is read from
+`clients/<name>.jsonc`:
+
+```bash
+bun run studio-client acme
+```
+
+Studio reaches D1 over Cloudflare's HTTP API, which needs two credentials `wrangler login` can't
+provide:
+
+- **`CLOUDFLARE_ACCOUNT_ID`** — pass `--account <id>`, or set the env var (also read from a
+  gitignored `.env`).
+- **`CLOUDFLARE_D1_TOKEN`** — a Cloudflare API token with **D1 : Edit**, created at
+  [dash.cloudflare.com/profile/api-tokens](https://dash.cloudflare.com/profile/api-tokens)
+  (Custom token → Account · D1 · Edit). Put it in your shell env or `.env`. Set both once and it's
+  a single command per client (`CLOUDFLARE_API_TOKEN` is accepted as a fallback).
+
+> ⚠ **This is live production data** — Studio edits write straight through, with no local copy and
+> no undo. For the local dev database use `bun run db:studio` instead.
+
+No API token to hand? Snapshot the client's D1 to a local SQL dump with your existing `wrangler`
+login (read-only, no token) and inspect it with any SQLite tool:
+
+```bash
+npx wrangler d1 export dito-acme-db --remote --output acme.sql
+```
 
 ### Per-client media storage
 
