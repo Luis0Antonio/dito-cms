@@ -572,6 +572,18 @@ export interface DeliveryCollectionSchema {
   fields: Array<{ name: string; label: string; type: FieldType; options: FieldOptions }>;
 }
 
+/**
+ * The public `/api/v1/collections` payload: the collection schemas plus the deployment's
+ * content locales. A typed client uses `locales`/`defaultLocale` to know which `?locale=`
+ * values are valid and which is the delivery fallback; each field's `options.localized`
+ * flag (already carried in `fields[].options`) tells it which fields are locale-keyed.
+ */
+export interface DeliverySchemaResponse {
+  collections: DeliveryCollectionSchema[];
+  locales: string[];
+  defaultLocale: string;
+}
+
 // --- Export / Import (whole-project backup) ---------------------------------
 
 /** One field as serialized in an export bundle. */

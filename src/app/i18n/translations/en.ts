@@ -131,6 +131,7 @@ export const en: Record<TranslationKey, string> = {
   "editor.empty.description": "Add fields to this collection's schema before authoring content.",
   "editor.editSchema": "Edit schema",
   "editor.untitled": "Untitled",
+  "editor.locale.label": "Content language",
   "editor.saveDraft.success": "Draft saved",
   "editor.publish.success": "Published",
   "editor.discard.title": "Discard changes?",

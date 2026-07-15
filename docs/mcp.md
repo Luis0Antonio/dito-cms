@@ -182,10 +182,11 @@ The MCP server writes content; sites read it from the **public, read-only, CORS-
 API — no key required:
 
 ```
-GET https://<your-instance>/api/v1/collections            # schema (collections + fields)
+GET https://<your-instance>/api/v1/collections            # schema (collections + fields, locales)
 GET https://<your-instance>/api/v1/content/:slug          # collection list, or a singleton
+GET https://<your-instance>/api/v1/content/:slug?locale=en # pick a language for localized fields
 GET https://<your-instance>/api/v1/content/:slug/:idOrSlug # one published entry by id or slug
 ```
 
-See the [README](../README.md#reading-content-delivery-api) for filtering, caching and a frontend
-example.
+See the [README](../README.md#reading-content-delivery-api) for filtering, localization, caching
+and a frontend example.

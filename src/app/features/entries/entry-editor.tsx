@@ -24,42 +24,67 @@ import { isApiError } from "@/app/api/client";
 import { useI18n } from "@/app/i18n";
 import { Form } from "@/app/components/ui/form";
 import { Button } from "@/app/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/app/components/ui/toggle-group";
 import { EmptyState } from "@/app/components/common/empty-state";
 import { ConfirmDialog } from "@/app/components/common/confirm-dialog";
 import { EntryUsageWarning } from "@/app/features/entries/entry-usage-warning";
 import { useUnsavedChangesGuard } from "@/app/hooks/use-unsaved-changes-guard";
-import type { CollectionDetail, EntryDetail } from "@/shared/api-types";
+import { isLocalized, type LocaleConfig } from "@/shared/localization";
+import type { CollectionDetail, EntryDetail, FieldDTO } from "@/shared/api-types";
 
 interface EntryEditorProps {
   collection: CollectionDetail;
   /** null → authoring a brand-new entry. */
   entry: EntryDetail | null;
+  /** Content locale config (locales + default), from project settings. */
+  localeConfig: LocaleConfig;
   /** Singletons have no list to return to → hide the status-bar back button. */
   hideBack?: boolean;
 }
 
-/** Maps server fieldErrors onto the form and focuses the first one. Returns true if any. */
+/**
+ * Maps server fieldErrors onto the form and focuses the first one. A localized field's error is
+ * keyed at the field name (a missing required default-locale value) or `name.locale` (a bad
+ * per-locale value); it's remapped onto the matching per-locale input and its locale returned so
+ * the editor can switch to that tab. Returns whether any error was applied + the tab to focus.
+ */
 function applyFieldErrors(
   setError: ReturnType<typeof useForm>["setError"],
   setFocus: ReturnType<typeof useForm>["setFocus"],
-  fieldErrors?: Record<string, string>,
-): boolean {
-  if (!fieldErrors) return false;
+  fieldErrors: Record<string, string> | undefined,
+  fields: FieldDTO[],
+  config: LocaleConfig,
+): { applied: boolean; focusLocale: string | null } {
+  if (!fieldErrors) return { applied: false, focusLocale: null };
+  const localizedNames = new Set(fields.filter(isLocalized).map((f) => f.name));
   const keys = Object.keys(fieldErrors);
-  for (const key of keys) setError(key, { message: fieldErrors[key] });
-  if (keys[0]) {
+  let firstKey: string | undefined;
+  let focusLocale: string | null = null;
+  for (const key of keys) {
+    const topName = key.split(".")[0];
+    let target = key;
+    if (localizedNames.has(topName)) {
+      const locale = key.includes(".") ? key.slice(topName.length + 1).split(".")[0] : config.default;
+      target = key.includes(".") ? key : `${key}.${config.default}`;
+      if (focusLocale === null) focusLocale = locale;
+    }
+    setError(target, { message: fieldErrors[key] });
+    if (!firstKey) firstKey = target;
+  }
+  if (firstKey) {
     try {
-      setFocus(keys[0]);
+      setFocus(firstKey);
     } catch {
       /* rich-text / media inputs aren't focusable — ignore */
     }
   }
-  return keys.length > 0;
+  return { applied: keys.length > 0, focusLocale };
 }
 
 function EntryEditorForm({
   collection,
   entry,
+  localeConfig,
   hideBack,
   onReload,
 }: EntryEditorProps & { onReload: () => void }): React.ReactElement {
@@ -71,11 +96,17 @@ function EntryEditorForm({
   const status = entry?.status ?? "draft";
 
   const form = useForm<FieldValues>({
-    defaultValues: toFormValues(fields, entry?.draftData ?? {}),
+    defaultValues: toFormValues(fields, entry?.draftData ?? {}, localeConfig),
   });
   const isDirty = form.formState.isDirty;
   const [busy, setBusy] = useState<null | "save" | "publish">(null);
   const [confirm, setConfirm] = useState<null | "discard" | "unpublish" | "delete">(null);
+
+  // Which content locale is being edited. All locales live in form state simultaneously (seeded by
+  // toFormValues) and submit together, so switching tabs never remounts the form or loses input.
+  const [activeLocale, setActiveLocale] = useState(localeConfig.default);
+  const hasLocalizedField = fields.some(isLocalized);
+  const showLocaleSwitcher = hasLocalizedField && localeConfig.locales.length > 1;
 
   useUnsavedChangesGuard(isDirty && busy === null);
 
@@ -91,7 +122,7 @@ function EntryEditorForm({
   const onSaveDraft = form.handleSubmit(async (values) => {
     setBusy("save");
     try {
-      const data = toEntryData(fields, values);
+      const data = toEntryData(fields, values, localeConfig);
       const saved = isNew
         ? await createEntry(collection.slug, { data })
         : await updateEntry(entry.id, { data });
@@ -105,7 +136,11 @@ function EntryEditorForm({
         });
       }
     } catch (e) {
-      if (isApiError(e) && applyFieldErrors(form.setError, form.setFocus, e.fieldErrors)) {
+      const res = isApiError(e)
+        ? applyFieldErrors(form.setError, form.setFocus, e.fieldErrors, fields, localeConfig)
+        : { applied: false, focusLocale: null };
+      if (res.focusLocale) setActiveLocale(res.focusLocale);
+      if (res.applied) {
         toast.error(t("editor.fieldsError"));
       } else {
         toast.error(isApiError(e) ? e.message : t("editor.saveDraft.error"));
@@ -118,7 +153,7 @@ function EntryEditorForm({
   const onPublish = form.handleSubmit(async (values) => {
     setBusy("publish");
     try {
-      const data = toEntryData(fields, values);
+      const data = toEntryData(fields, values, localeConfig);
       let result: EntryDetail;
       if (isNew) {
         result = await createEntry(collection.slug, { data, publish: true });
@@ -136,7 +171,11 @@ function EntryEditorForm({
         });
       }
     } catch (e) {
-      if (isApiError(e) && applyFieldErrors(form.setError, form.setFocus, e.fieldErrors)) {
+      const res = isApiError(e)
+        ? applyFieldErrors(form.setError, form.setFocus, e.fieldErrors, fields, localeConfig)
+        : { applied: false, focusLocale: null };
+      if (res.focusLocale) setActiveLocale(res.focusLocale);
+      if (res.applied) {
         toast.error(t("editor.fieldsPublishError"));
       } else {
         toast.error(isApiError(e) ? e.message : t("editor.publish.error"));
@@ -223,8 +262,32 @@ function EntryEditorForm({
           />
         ) : (
           <div className="space-y-6">
+            {showLocaleSwitcher ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm text-muted-foreground">{t("editor.locale.label")}</span>
+                <ToggleGroup
+                  type="single"
+                  value={activeLocale}
+                  onValueChange={(v) => v && setActiveLocale(v)}
+                  variant="outline"
+                  size="sm"
+                >
+                  {localeConfig.locales.map((loc) => (
+                    <ToggleGroupItem key={loc} value={loc} className="px-3 uppercase">
+                      {loc}
+                    </ToggleGroupItem>
+                  ))}
+                </ToggleGroup>
+              </div>
+            ) : null}
             {fields.map((field) => (
-              <FieldInput key={field.id} control={form.control} field={field} />
+              <FieldInput
+                key={field.id}
+                control={form.control}
+                field={field}
+                activeLocale={activeLocale}
+                locales={localeConfig.locales}
+              />
             ))}
           </div>
         )}
@@ -293,13 +356,19 @@ function EntryEditorForm({
 }
 
 /** Remounts the form (resetting all inputs incl. the rich-text editor) when reloadKey bumps. */
-export function EntryEditor({ collection, entry, hideBack }: EntryEditorProps): React.ReactElement {
+export function EntryEditor({
+  collection,
+  entry,
+  localeConfig,
+  hideBack,
+}: EntryEditorProps): React.ReactElement {
   const [reloadKey, setReloadKey] = useState(0);
   return (
     <EntryEditorForm
       key={`${entry?.id ?? "new"}:${reloadKey}`}
       collection={collection}
       entry={entry}
+      localeConfig={localeConfig}
       hideBack={hideBack}
       onReload={() => setReloadKey((k) => k + 1)}
     />

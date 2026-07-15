@@ -21,7 +21,7 @@ import { getContentLocales } from "./settings";
 
 import { parseFieldOptions, type FieldOptions } from "@/shared/field-types";
 import { type FieldDefinition } from "@/shared/validation";
-import { type LocaleConfig } from "@/shared/localization";
+import { resolveLocalizedValue, type LocaleConfig } from "@/shared/localization";
 import { isValidSlug } from "@/shared/slug";
 import { D1_IN_CHUNK } from "@/shared/constants";
 import type {
@@ -127,10 +127,14 @@ function deriveStatus(row: EntryRow): EntryStatus {
   return "published";
 }
 
-/** Best-effort human title for the list, drawn from the collection's title field. */
-function titlePreview(draft: EntryData, titleField: string | null): string {
+/**
+ * Best-effort human title for the list, drawn from the collection's title field. When the title
+ * field is localized its stored value is a `{ [locale]: value }` map, so resolve it to the default
+ * locale first (a bare/unmigrated value passes through unchanged) before the string/link fallbacks.
+ */
+function titlePreview(draft: EntryData, titleField: string | null, config: LocaleConfig): string {
   if (titleField) {
-    const v = draft[titleField];
+    const v = resolveLocalizedValue(draft[titleField], config.default, config);
     if (typeof v === "string" && v.trim()) return v.trim();
     if (typeof v === "number" || typeof v === "boolean") return String(v);
     if (v && typeof v === "object") {
@@ -158,12 +162,12 @@ function mapDetail(row: EntryRow): EntryDetail {
   };
 }
 
-function mapSummary(row: EntryRow, titleField: string | null): EntrySummary {
+function mapSummary(row: EntryRow, titleField: string | null, config: LocaleConfig): EntrySummary {
   return {
     id: row.id,
     slug: row.slug,
     status: deriveStatus(row),
-    title: titlePreview(parseJson(row.draftData), titleField),
+    title: titlePreview(parseJson(row.draftData), titleField, config),
     sortOrder: row.sortOrder,
     draftUpdatedAt: row.draftUpdatedAt,
     publishedAt: row.publishedAt,
@@ -241,6 +245,7 @@ export async function listEntries(
   params: ListEntriesParams,
 ): Promise<EntryListResult> {
   const { collection } = await loadBySlug(db, slug);
+  const localeConfig = await getContentLocales(db);
   const limit = Math.min(Math.max(params.limit ?? 50, 1), 100);
   const offset = Math.max(params.offset ?? 0, 0);
 
@@ -262,7 +267,7 @@ export async function listEntries(
     .all();
 
   return {
-    entries: rows.map((r) => mapSummary(r, collection.titleField)),
+    entries: rows.map((r) => mapSummary(r, collection.titleField, localeConfig)),
     total: totalRow?.n ?? 0,
   };
 }
@@ -313,10 +318,11 @@ export async function getEntryRef(db: DrizzleDb, id: string): Promise<EntryRef> 
     .where(eq(entries.id, id))
     .get();
   if (!row) throw notFound("Entry not found");
+  const localeConfig = await getContentLocales(db);
   const draft = parseJson(row.entry.draftData);
   return {
     id: row.entry.id,
-    title: titlePreview(draft, row.titleField),
+    title: titlePreview(draft, row.titleField, localeConfig),
     slug: row.entry.slug,
     collectionSlug: row.collectionSlug,
     status: deriveStatus(row.entry),
