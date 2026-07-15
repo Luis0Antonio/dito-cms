@@ -2,6 +2,7 @@ import { queryOptions } from "@tanstack/react-query";
 
 import { api } from "./client";
 
+import type { LocaleConfig } from "@/shared/localization";
 import type { ProjectSettings } from "@/shared/api-types";
 
 export const settingsKeys = {
@@ -16,4 +17,9 @@ export const projectSettingsQueryOptions = queryOptions({
 
 export function updateProjectSettings(body: Partial<ProjectSettings>): Promise<ProjectSettings> {
   return api.patch<ProjectSettings>("/api/admin/settings", body);
+}
+
+/** The content-locale config (locales + default) carried by project settings. */
+export function toLocaleConfig(settings: ProjectSettings): LocaleConfig {
+  return { locales: settings.contentLocales, default: settings.defaultLocale };
 }

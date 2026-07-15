@@ -19,6 +19,7 @@ import {
 import { isApiError } from "@/app/api/client";
 import { useI18n } from "@/app/i18n";
 import { slugify } from "@/shared/slug";
+import { DEFAULT_LOCALE_CONFIG } from "@/shared/localization";
 import type { CategorySummary, FieldDTO, ProductDetail, MediaDTO } from "@/shared/api-types";
 import { Button } from "@/app/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/app/components/ui/card";
@@ -79,7 +80,9 @@ export function ProductEditor({ schema, categories, product }: ProductEditorProp
       _stock: product?.stock ?? null,
       _status: product?.status ?? "draft",
       _category: product?.categoryId ?? "",
-      ...toFormValues(schema, product?.customData ?? {}),
+      // Products are never localized (product fields strip the `localized` flag), so pass the
+      // inert default locale config — every field takes the non-localized (bare) path.
+      ...toFormValues(schema, product?.customData ?? {}, DEFAULT_LOCALE_CONFIG),
     },
   });
   const [images, setImages] = useState<MediaDTO[]>(product?.images ?? []);
@@ -129,7 +132,7 @@ export function ProductEditor({ schema, categories, product }: ProductEditorProp
         stock: stockRaw === "" || stockRaw === null || stockRaw === undefined ? null : Number(stockRaw),
         status: values._status,
         categoryId: values._category ? String(values._category) : null,
-        customData: toEntryData(schema, values) as Record<string, unknown>,
+        customData: toEntryData(schema, values, DEFAULT_LOCALE_CONFIG) as Record<string, unknown>,
         imageIds: images.map((m) => m.id),
       };
       const saved = isNew ? await createProduct(body) : await updateProduct(product.slug, body);

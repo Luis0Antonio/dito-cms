@@ -1,4 +1,4 @@
-import { FieldFrame, RequiredMark, isFieldRequired } from "./field-frame";
+import { FieldFrame, LocaleIndicator, RequiredMark, isFieldRequired, localizedPath } from "./field-frame";
 import { RichTextFieldInput } from "./rich-text-input";
 import { MediaFieldInput } from "./media-input";
 import { ReferenceFieldInput } from "./reference-input";
@@ -24,10 +24,11 @@ import {
   FormMessage,
 } from "@/app/components/ui/form";
 
-function TextFieldInput({ control, field }: EntryFieldInputProps): React.ReactElement {
+function TextFieldInput(props: EntryFieldInputProps): React.ReactElement {
+  const { field } = props;
   const multiline = field.options.multiline === true;
   return (
-    <FieldFrame control={control} field={field}>
+    <FieldFrame {...props}>
       {(rhf) =>
         multiline ? (
           <Textarea
@@ -48,9 +49,10 @@ function TextFieldInput({ control, field }: EntryFieldInputProps): React.ReactEl
   );
 }
 
-function NumberFieldInput({ control, field }: EntryFieldInputProps): React.ReactElement {
+function NumberFieldInput(props: EntryFieldInputProps): React.ReactElement {
+  const { field } = props;
   return (
-    <FieldFrame control={control} field={field}>
+    <FieldFrame {...props}>
       {(rhf) => (
         <Input
           type="number"
@@ -67,15 +69,18 @@ function NumberFieldInput({ control, field }: EntryFieldInputProps): React.React
   );
 }
 
-function BooleanFieldInput({ control, field }: EntryFieldInputProps): React.ReactElement {
+function BooleanFieldInput({ control, field, activeLocale, locales }: EntryFieldInputProps): React.ReactElement {
   return (
     <FormField
       control={control}
-      name={field.name}
+      name={localizedPath(field, activeLocale)}
       render={({ field: rhf }) => (
         <FormItem className="flex flex-row items-center justify-between gap-4 rounded-lg border p-3">
           <div className="space-y-0.5">
-            <FormLabel>{field.label}</FormLabel>
+            <FormLabel>
+              {field.label}
+              <LocaleIndicator control={control} field={field} activeLocale={activeLocale} locales={locales} />
+            </FormLabel>
             {field.options.help ? <FormDescription>{field.options.help}</FormDescription> : null}
           </div>
           <FormControl>
@@ -87,13 +92,15 @@ function BooleanFieldInput({ control, field }: EntryFieldInputProps): React.Reac
   );
 }
 
-function LinkFieldInput({ control, field }: EntryFieldInputProps): React.ReactElement {
+function LinkFieldInput({ control, field, activeLocale, locales }: EntryFieldInputProps): React.ReactElement {
+  const base = localizedPath(field, activeLocale);
   return (
     <div className="space-y-2">
       <div className="space-y-0.5">
         <span className="text-sm leading-none font-medium">
           {field.label}
           <RequiredMark field={field} />
+          <LocaleIndicator control={control} field={field} activeLocale={activeLocale} locales={locales} />
         </span>
         {field.options.help ? (
           <p className="text-sm text-muted-foreground">{field.options.help}</p>
@@ -102,7 +109,7 @@ function LinkFieldInput({ control, field }: EntryFieldInputProps): React.ReactEl
       <div className="space-y-3 rounded-lg border p-3">
         <FormField
           control={control}
-          name={`${field.name}.url`}
+          name={`${base}.url`}
           render={({ field: rhf }) => (
             <FormItem>
               <FormLabel className="text-xs text-muted-foreground">URL</FormLabel>
@@ -119,7 +126,7 @@ function LinkFieldInput({ control, field }: EntryFieldInputProps): React.ReactEl
         />
         <FormField
           control={control}
-          name={`${field.name}.label`}
+          name={`${base}.label`}
           render={({ field: rhf }) => (
             <FormItem>
               <FormLabel className="text-xs text-muted-foreground">Label (optional)</FormLabel>
@@ -132,7 +139,7 @@ function LinkFieldInput({ control, field }: EntryFieldInputProps): React.ReactEl
         />
         <FormField
           control={control}
-          name={`${field.name}.newTab`}
+          name={`${base}.newTab`}
           render={({ field: rhf }) => (
             <FormItem className="flex flex-row items-center justify-between gap-4">
               <FormLabel className="text-xs text-muted-foreground">Open in a new tab</FormLabel>
@@ -147,14 +154,14 @@ function LinkFieldInput({ control, field }: EntryFieldInputProps): React.ReactEl
   );
 }
 
-function SelectFieldInput({ control, field }: EntryFieldInputProps): React.ReactElement {
+function SelectFieldInput({ control, field, activeLocale, locales }: EntryFieldInputProps): React.ReactElement {
   const choices = Array.isArray(field.options.choices) ? field.options.choices : [];
   const placeholder = field.options.placeholder || "Select an option";
   const required = isFieldRequired(field);
   return (
     <FormField
       control={control}
-      name={field.name}
+      name={localizedPath(field, activeLocale)}
       render={({ field: rhf }) => {
         // Radix Select uses "" for "nothing selected" (renders the placeholder);
         // option values are always non-empty choices. Never feed it null/undefined.
@@ -164,6 +171,7 @@ function SelectFieldInput({ control, field }: EntryFieldInputProps): React.React
             <FormLabel>
               {field.label}
               <RequiredMark field={field} />
+              <LocaleIndicator control={control} field={field} activeLocale={activeLocale} locales={locales} />
             </FormLabel>
             <div className="flex items-center gap-2">
               <Select value={value} onValueChange={rhf.onChange}>

@@ -129,6 +129,7 @@ export const es = {
   "editor.empty.description": "Agrega campos al esquema de esta colección antes de crear contenido.",
   "editor.editSchema": "Editar esquema",
   "editor.untitled": "Sin título",
+  "editor.locale.label": "Idioma del contenido",
   "editor.saveDraft.success": "Borrador guardado",
   "editor.publish.success": "Publicado",
   "editor.discard.title": "¿Descartar cambios?",
