@@ -151,3 +151,10 @@ Preserve this design; do **not** regress it:
   toggles the editable input; the server re-checks on PATCH → 403. A usage bar on the Media page is the
   surface the blocked-upload toast points to; keep it fresh by invalidating `settingsKeys.all` on upload
   success and media delete.
+- **The Store/Forms module toggles are the same System Admin gate** as the storage limit. `readSettings`
+  exposes a shared `isSystemAdmin` flag (`canEditStorageLimit` is kept equal to it); the General page hides
+  both toggle cards for non–System Admins, and PATCH re-checks before applying `commerceEnabled`/`formsEnabled`
+  → 403. The flag *values* still go to every admin (sidebar nav / route guards read them) — only the toggles
+  are gated. **Note:** the MCP tools `set_store_enabled`/`set_forms_enabled` are deliberately NOT
+  system-admin-gated (MCP has no system-admin gate anywhere, and the storage-limit feature has no MCP edit
+  surface to mirror); revisit only if MCP gains a system-admin authorization model.

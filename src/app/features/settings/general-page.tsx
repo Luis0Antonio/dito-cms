@@ -354,45 +354,53 @@ export function GeneralSettingsPage(): React.ReactElement {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{t("settings.general.forms")}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex max-w-xl items-center justify-between gap-4">
-            <div className="space-y-0.5">
-              <Label htmlFor="forms-enabled">{t("settings.general.formsEnable")}</Label>
-              <p className="text-xs text-muted-foreground">{t("settings.general.formsHint")}</p>
-            </div>
-            <Switch
-              id="forms-enabled"
-              checked={data?.formsEnabled ?? false}
-              onCheckedChange={(v) => toggleForms.mutate(v)}
-              disabled={!data || toggleForms.isPending}
-            />
-          </div>
-        </CardContent>
-      </Card>
+      {/* Store & Forms are System-Admin-only controls — toggling a module changes what the whole
+          instance exposes. Both cards are hidden entirely for regular admins (the server also
+          re-checks on PATCH). They render only once settings load and the caller is a System Admin;
+          the module's on/off state still shows in the sidebar nav for everyone. */}
+      {data?.isSystemAdmin ? (
+        <>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">{t("settings.general.forms")}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex max-w-xl items-center justify-between gap-4">
+                <div className="space-y-0.5">
+                  <Label htmlFor="forms-enabled">{t("settings.general.formsEnable")}</Label>
+                  <p className="text-xs text-muted-foreground">{t("settings.general.formsHint")}</p>
+                </div>
+                <Switch
+                  id="forms-enabled"
+                  checked={data.formsEnabled}
+                  onCheckedChange={(v) => toggleForms.mutate(v)}
+                  disabled={toggleForms.isPending}
+                />
+              </div>
+            </CardContent>
+          </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{t("settings.general.store")}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex max-w-xl items-center justify-between gap-4">
-            <div className="space-y-0.5">
-              <Label htmlFor="store-enabled">{t("settings.general.storeEnable")}</Label>
-              <p className="text-xs text-muted-foreground">{t("settings.general.storeHint")}</p>
-            </div>
-            <Switch
-              id="store-enabled"
-              checked={data?.commerceEnabled ?? false}
-              onCheckedChange={(v) => toggleStore.mutate(v)}
-              disabled={!data || toggleStore.isPending}
-            />
-          </div>
-        </CardContent>
-      </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">{t("settings.general.store")}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex max-w-xl items-center justify-between gap-4">
+                <div className="space-y-0.5">
+                  <Label htmlFor="store-enabled">{t("settings.general.storeEnable")}</Label>
+                  <p className="text-xs text-muted-foreground">{t("settings.general.storeHint")}</p>
+                </div>
+                <Switch
+                  id="store-enabled"
+                  checked={data.commerceEnabled}
+                  onCheckedChange={(v) => toggleStore.mutate(v)}
+                  disabled={toggleStore.isPending}
+                />
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      ) : null}
 
       <Card>
         <CardHeader>

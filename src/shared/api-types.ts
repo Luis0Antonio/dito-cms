@@ -52,13 +52,17 @@ export interface ProjectSettings {
   /**
    * Whether the optional Store (commerce) module is enabled. OFF by default. Gates the
    * store admin routes, MCP store tools and the SPA store nav/routes. Content-only
-   * instances leave this off and are entirely unaffected.
+   * instances leave this off and are entirely unaffected. The value is visible to every
+   * admin (the sidebar/route guards read it), but the toggle is System Admin only (see
+   * `isSystemAdmin`), enforced on PATCH.
    */
   commerceEnabled: boolean;
   /**
    * Whether the optional Forms (contact forms) module is enabled. OFF by default. Gates the
    * contact-form admin routes, the public submission endpoint, the MCP forms toggle and the
-   * SPA forms nav/route. Instances that don't use forms leave this off and are unaffected.
+   * SPA forms nav/route. Instances that don't use forms leave this off and are unaffected. The
+   * value is visible to every admin, but the toggle is System Admin only (see `isSystemAdmin`),
+   * enforced on PATCH.
    */
   formsEnabled: boolean;
   /**
@@ -69,6 +73,14 @@ export interface ProjectSettings {
   storageLimitGb: number;
   /** Total bytes of media currently stored (SUM over the media table), for the usage indicator. */
   storageUsedBytes: number;
+  /**
+   * Whether the CURRENT caller is a System Admin. Computed per-request from the D1-only System
+   * Admin allowlist (never the mutable `user.role`). Gates the System-Admin-only controls on the
+   * General settings page — currently the Store/Forms module toggles, which are hidden for
+   * everyone else. The server re-checks on PATCH regardless, so this only governs what the UI
+   * reveals. (`canEditStorageLimit` below is the same gate, kept as a field-level capability flag.)
+   */
+  isSystemAdmin: boolean;
   /**
    * Whether the CURRENT caller is a System Admin and may PATCH `storageLimitGb`. Computed
    * per-request from the D1-only System Admin allowlist — the read-only figures above are shown
