@@ -317,6 +317,29 @@ GET /api/v1/content/posts?filter[tags][eq]=<tagId>           # multiple referenc
 Renaming a referenced entry busts the referrer's `ETag`, so a `304` never serves a stale
 expanded title.
 
+### Localized content
+
+When a deployment configures more than one content language (Settings → **Content languages**),
+fields marked **Localized** in the schema store a per-language value. Pick the language at
+delivery with `?locale=`:
+
+```
+GET /api/v1/content/:slug?locale=en                 # English values
+GET /api/v1/content/:slug?filter[title][contains]=…&locale=en   # filter/sort on the English value
+GET /api/v1/collections                             # payload also carries { locales, defaultLocale }
+```
+
+- **Fallback:** a locale with no translation for a field falls back to the **default** locale
+  (then the field default). Filtering and sorting resolve the same way, so they operate on
+  exactly the value the response returns.
+- **Unknown or absent `locale`** → the default locale. Valid values are advertised as `locales`
+  in `GET /api/v1/collections`.
+- **Locale comes from the URL only** (never `Accept-Language`): `?locale=es` and `?locale=en`
+  are distinct, independently-cacheable URLs, and the `ETag` folds in the locale, so a `304`
+  never serves one language's bytes for another.
+- Non-localized fields (including all `picture`/`video`/`reference` fields) are **shared** across
+  languages and unaffected. A single-language deployment behaves exactly as before.
+
 ### Consuming from Astro
 
 ```astro

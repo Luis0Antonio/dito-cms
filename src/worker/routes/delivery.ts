@@ -4,7 +4,7 @@ import { cors } from "hono/cors";
 import type { AppEnv } from "../lib/app";
 import { badRequest, notFound, payloadTooLarge } from "../lib/errors";
 import { submitContactForm } from "../services/contact-forms";
-import { isFormsEnabled } from "../services/settings";
+import { getContentLocales, isFormsEnabled } from "../services/settings";
 import {
   getContentItem,
   getPublicSchema,
@@ -15,6 +15,7 @@ import {
 } from "../services/delivery";
 
 import { MAX_DELIVERY_LIMIT } from "@/shared/constants";
+import type { LocaleConfig } from "@/shared/localization";
 
 // Public delivery API at /api/v1/*. CORS open to any origin (read-only verbs); serves
 // published content with ETag / Cache-Control so CDNs and clients can cache + revalidate.
@@ -50,34 +51,58 @@ function parseInt0(value: string | null, fallback: number): number {
   return Number.isFinite(n) ? Math.trunc(n) : fallback;
 }
 
-// Public schema (collections + field defs) for typed clients.
+/**
+ * Resolve `?locale=` against the configured locales; an unknown or absent value falls back to
+ * the default locale. Locale is read from the URL ONLY — never the `Accept-Language` header:
+ * delivery bodies are cacheable (`max-age=60`), so a header-driven language switch would let an
+ * edge serve whichever language cached first to every client (cross-locale cache poisoning).
+ * `?locale=es` and `?locale=en` are distinct URLs, so they cache independently and safely.
+ */
+function resolveLocale(url: URL, config: LocaleConfig): string {
+  const requested = url.searchParams.get("locale");
+  return requested && config.locales.includes(requested) ? requested : config.default;
+}
+
+// Public schema (collections + field defs) for typed clients, plus the deployment's content
+// locales + default so a typed client knows which `?locale=` values are valid.
 deliveryRouter.get("/collections", async (c) => {
-  const collections = await getPublicSchema(c.get("db"));
+  const db = c.get("db");
+  const schema = await getPublicSchema(db, await getContentLocales(db));
   c.header("Cache-Control", CACHE_CONTROL);
-  return c.json({ collections });
+  return c.json(schema);
 });
 
 // Collection → paginated list; singleton → the single published object.
 deliveryRouter.get("/content/:slug", async (c) => {
-  const loaded = await loadDeliveryCollection(c.get("db"), c.req.param("slug"));
+  const db = c.get("db");
+  const loaded = await loadDeliveryCollection(db, c.req.param("slug"));
+  const config = await getContentLocales(db);
+  const url = new URL(c.req.url);
+  const locale = resolveLocale(url, config);
 
   if (loaded.collection.type === "singleton") {
-    const { data, etag } = await getSingletonContent(c.get("db"), c.get("origin"), loaded);
+    const { data, etag } = await getSingletonContent(db, c.get("origin"), loaded, locale, config);
     c.header("ETag", etag);
     c.header("Cache-Control", CACHE_CONTROL);
     if (notModified(c.req.header("If-None-Match"), etag)) return c.body(null, 304);
     return c.json({ data });
   }
 
-  const url = new URL(c.req.url);
   const limit = Math.min(Math.max(parseInt0(url.searchParams.get("limit"), 20), 1), MAX_DELIVERY_LIMIT);
   const offset = Math.max(parseInt0(url.searchParams.get("offset"), 0), 0);
-  const { response, etag } = await queryCollectionContent(c.get("db"), c.get("origin"), loaded, {
-    limit,
-    offset,
-    sort: url.searchParams.get("sort") ?? undefined,
-    filters: parseFilters(url),
-  });
+  const { response, etag } = await queryCollectionContent(
+    db,
+    c.get("origin"),
+    loaded,
+    {
+      limit,
+      offset,
+      sort: url.searchParams.get("sort") ?? undefined,
+      filters: parseFilters(url),
+      locale,
+    },
+    config,
+  );
   c.header("ETag", etag);
   c.header("Cache-Control", CACHE_CONTROL);
   if (notModified(c.req.header("If-None-Match"), etag)) return c.body(null, 304);
@@ -86,8 +111,18 @@ deliveryRouter.get("/content/:slug", async (c) => {
 
 // A single published entry by id or slug.
 deliveryRouter.get("/content/:slug/:idOrSlug", async (c) => {
-  const loaded = await loadDeliveryCollection(c.get("db"), c.req.param("slug"));
-  const { data, etag } = await getContentItem(c.get("db"), c.get("origin"), loaded, c.req.param("idOrSlug"));
+  const db = c.get("db");
+  const loaded = await loadDeliveryCollection(db, c.req.param("slug"));
+  const config = await getContentLocales(db);
+  const locale = resolveLocale(new URL(c.req.url), config);
+  const { data, etag } = await getContentItem(
+    db,
+    c.get("origin"),
+    loaded,
+    c.req.param("idOrSlug"),
+    locale,
+    config,
+  );
   c.header("ETag", etag);
   c.header("Cache-Control", CACHE_CONTROL);
   if (notModified(c.req.header("If-None-Match"), etag)) return c.body(null, 304);

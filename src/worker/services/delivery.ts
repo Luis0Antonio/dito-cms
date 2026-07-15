@@ -9,12 +9,14 @@ import { referenceIds } from "./references";
 
 import { D1_IN_CHUNK } from "@/shared/constants";
 import { FIELD_TYPES, parseFieldOptions, type FieldOptions } from "@/shared/field-types";
+import { isLocalized, resolveLocalizedValue, type LocaleConfig } from "@/shared/localization";
 import type { FieldDefinition } from "@/shared/validation";
 import type {
   DeliveryCollectionSchema,
   DeliveryEntry,
   DeliveryListResponse,
   DeliveryReference,
+  DeliverySchemaResponse,
   EntryData,
 } from "@/shared/api-types";
 
@@ -36,6 +38,8 @@ export interface ContentQuery {
   offset: number;
   sort?: string;
   filters: RawFilter[];
+  /** The resolved delivery locale (already validated to be one of the configured locales). */
+  locale: string;
 }
 
 export interface DeliveryCollection {
@@ -89,22 +93,46 @@ function normalizeForDelivery(defs: FieldDefinition[], data: EntryData): EntryDa
   return out;
 }
 
-function toDeliveryEntry(row: EntryRow, defs: FieldDefinition[]): DeliveryEntry {
+function toDeliveryEntry(
+  row: EntryRow,
+  defs: FieldDefinition[],
+  locale: string,
+  config: LocaleConfig,
+): DeliveryEntry {
+  const data = normalizeForDelivery(defs, parseJson(row.publishedData ?? "{}"));
+  // Collapse each localized field's `{ [locale]: value }` map to a single value for the
+  // requested locale (falling back to the default locale, then the field default). After this
+  // every value is a plain scalar again, so expandMedia/expandReferences work unchanged. A bare
+  // (unmigrated `localized` flip) value passes straight through via resolveLocalizedValue.
+  for (const def of defs) {
+    if (!isLocalized(def)) continue;
+    const fieldDefault = FIELD_TYPES[def.type].resolveDefault(def.options) ?? null;
+    data[def.name] = resolveLocalizedValue(data[def.name], locale, config, fieldDefault);
+  }
   return {
     id: row.id,
     slug: row.slug,
     sortOrder: row.sortOrder,
     publishedAt: row.publishedAt,
-    data: normalizeForDelivery(defs, parseJson(row.publishedData ?? "{}")),
+    data,
   };
 }
 
 // `refSig` (the versions of every referenced target collection) is folded in so that
 // renaming an expanded target busts this entry's ETag — otherwise a 304 would serve a
 // stale expanded title. Empty for collections with no reference fields (ETag unchanged).
-function entryEtag(row: EntryRow, refSig: string): string {
+//
+// `locale` is folded in ONLY when 2+ locales are configured: a single-locale deployment can
+// never serve two bodies for one URL, so its ETags stay byte-identical to pre-localization.
+// The guard is on the GLOBAL config, never "does this collection have a localized field" — a
+// non-localized collection that references a localized-title target still varies by locale via
+// deliveryTitle, so a per-collection guard would let es/en collide on a 304.
+function entryEtag(row: EntryRow, refSig: string, locale: string, config: LocaleConfig): string {
   const tag = row.publishedEtag ?? hashString(row.publishedData ?? "");
-  return refSig ? `W/"${tag}-${hashString(refSig)}"` : `W/"${tag}"`;
+  const parts = [tag];
+  if (refSig) parts.push(hashString(refSig));
+  if (config.locales.length > 1) parts.push(locale);
+  return `W/"${parts.join("-")}"`;
 }
 
 /**
@@ -144,12 +172,23 @@ async function expandMedia(
 
 // --- reference expansion -----------------------------------------------------
 
-/** A published entry's title, drawn from its collection's title field (published data only). */
-function deliveryTitle(publishedJson: string | null, titleField: string | null): string {
+/**
+ * A published entry's title, drawn from its collection's title field (published data only).
+ * A localized title field stores a `{ [locale]: value }` map, so resolve it to the requested
+ * delivery locale (falling back to the default) before the string/number/link-label fallbacks;
+ * a bare/unmigrated value passes through unchanged (isLocaleMap heuristic, like Ship 2's
+ * titleFromJson). The target may live in any collection, but the locale config is deployment-wide.
+ */
+function deliveryTitle(
+  publishedJson: string | null,
+  titleField: string | null,
+  locale: string,
+  config: LocaleConfig,
+): string {
   if (!titleField || !publishedJson) return "Untitled";
   try {
     const data = JSON.parse(publishedJson) as EntryData;
-    const v = data[titleField];
+    const v = resolveLocalizedValue(data[titleField], locale, config);
     if (typeof v === "string" && v.trim()) return v.trim();
     if (typeof v === "number" || typeof v === "boolean") return String(v);
     if (v && typeof v === "object") {
@@ -167,6 +206,8 @@ function deliveryTitle(publishedJson: string | null, titleField: string | null):
 async function buildExpandedReferences(
   db: DrizzleDb,
   ids: string[],
+  locale: string,
+  config: LocaleConfig,
 ): Promise<Map<string, DeliveryReference>> {
   const unique = [...new Set(ids)];
   const out = new Map<string, DeliveryReference>();
@@ -191,7 +232,7 @@ async function buildExpandedReferences(
         id: r.id,
         slug: r.slug,
         collection: r.collectionSlug,
-        title: deliveryTitle(r.publishedData, r.titleField),
+        title: deliveryTitle(r.publishedData, r.titleField, locale, config),
       });
     }
   }
@@ -208,6 +249,8 @@ async function expandReferences(
   db: DrizzleDb,
   defs: FieldDefinition[],
   list: DeliveryEntry[],
+  locale: string,
+  config: LocaleConfig,
 ): Promise<void> {
   const refFields = defs.filter((d) => d.type === "reference");
   if (refFields.length === 0) return;
@@ -218,7 +261,7 @@ async function expandReferences(
   }
   if (ids.length === 0) return;
 
-  const byId = await buildExpandedReferences(db, ids);
+  const byId = await buildExpandedReferences(db, ids, locale, config);
   for (const entry of list) {
     for (const def of refFields) {
       const v = entry.data[def.name];
@@ -258,7 +301,10 @@ async function referencedVersionSignature(db: DrizzleDb, defs: FieldDefinition[]
 
 // --- public schema -----------------------------------------------------------
 
-export async function getPublicSchema(db: DrizzleDb): Promise<DeliveryCollectionSchema[]> {
+export async function getPublicSchema(
+  db: DrizzleDb,
+  config: LocaleConfig,
+): Promise<DeliverySchemaResponse> {
   const cols = await db
     .select()
     .from(collections)
@@ -278,6 +324,8 @@ export async function getPublicSchema(db: DrizzleDb): Promise<DeliveryCollection
       description: col.description,
       type: col.type,
       titleField: col.titleField,
+      // Each field's `options.localized` already rides in `options`, so typed clients learn
+      // which fields are locale-keyed for free — no separate flag needed here.
       fields: fieldRows.map((f) => {
         let options: FieldOptions = {};
         try {
@@ -289,17 +337,37 @@ export async function getPublicSchema(db: DrizzleDb): Promise<DeliveryCollection
       }),
     });
   }
-  return result;
+  return { collections: result, locales: config.locales, defaultLocale: config.default };
 }
 
 // --- filtering + sorting -----------------------------------------------------
 
-function jsonExtract(field: string): SQL {
-  return sql`json_extract(${entries.publishedData}, ${"$." + field})`;
+/**
+ * The SQL expression for a field's stored value, used by both filtering and sorting. A localized
+ * field stores a `{ [locale]: value }` map in the JSON, so extract `$.name.<locale>` and COALESCE
+ * to `$.name.<default>` — the same locale ?? default fallback resolveLocalizedValue applies to the
+ * body, so filter/sort operate on exactly the value the client sees. Non-localized fields keep the
+ * bare `$.name` path (byte-identical SQL to before). The locale codes come from LOCALE_CODE_RE-
+ * validated config AND the path is passed as a bound parameter (not interpolated), so there is no
+ * injection surface.
+ */
+function jsonExtract(def: FieldDefinition, locale: string, config: LocaleConfig): SQL {
+  const base = "$." + def.name;
+  if (!isLocalized(def)) return sql`json_extract(${entries.publishedData}, ${base})`;
+  const localePath = `${base}.${locale}`;
+  if (locale === config.default) return sql`json_extract(${entries.publishedData}, ${localePath})`;
+  const defaultPath = `${base}.${config.default}`;
+  return sql`COALESCE(json_extract(${entries.publishedData}, ${localePath}), json_extract(${entries.publishedData}, ${defaultPath}))`;
 }
 
-function compileFilter(def: FieldDefinition, op: FilterOp, rawValue: string): SQL {
-  const expr = jsonExtract(def.name);
+function compileFilter(
+  def: FieldDefinition,
+  op: FilterOp,
+  rawValue: string,
+  locale: string,
+  config: LocaleConfig,
+): SQL {
+  const expr = jsonExtract(def, locale, config);
 
   // References store a bare target id (or an id[] when `multiple`). Filter by id: for a
   // single ref, eq/ne compare the extracted id; for a multiple ref, test array membership
@@ -354,17 +422,27 @@ function compileFilter(def: FieldDefinition, op: FilterOp, rawValue: string): SQ
   }
 }
 
-function buildFilters(defs: FieldDefinition[], filters: RawFilter[]): SQL[] {
+function buildFilters(
+  defs: FieldDefinition[],
+  filters: RawFilter[],
+  locale: string,
+  config: LocaleConfig,
+): SQL[] {
   const byName = new Map(defs.map((d) => [d.name, d]));
   return filters.map((f) => {
     const def = byName.get(f.field);
     if (!def) throw badRequest(`Unknown filter field "${f.field}"`);
     if (!FILTER_OPS.includes(f.op as FilterOp)) throw badRequest(`Unknown filter operator "${f.op}"`);
-    return compileFilter(def, f.op as FilterOp, f.value);
+    return compileFilter(def, f.op as FilterOp, f.value, locale, config);
   });
 }
 
-function buildSort(defs: FieldDefinition[], sort: string | undefined): SQL {
+function buildSort(
+  defs: FieldDefinition[],
+  sort: string | undefined,
+  locale: string,
+  config: LocaleConfig,
+): SQL {
   if (!sort) return asc(entries.sortOrder);
   const dir = sort.startsWith("-") ? "desc" : "asc";
   const field = sort.replace(/^-/, "");
@@ -372,8 +450,11 @@ function buildSort(defs: FieldDefinition[], sort: string | undefined): SQL {
   if (field === "sortOrder") expr = sql`${entries.sortOrder}`;
   else if (field === "publishedAt") expr = sql`${entries.publishedAt}`;
   else if (field === "createdAt") expr = sql`${entries.createdAt}`;
-  else if (defs.some((d) => d.name === field)) expr = jsonExtract(field);
-  else throw badRequest(`Unknown sort field "${field}"`);
+  else {
+    const def = defs.find((d) => d.name === field);
+    if (!def) throw badRequest(`Unknown sort field "${field}"`);
+    expr = jsonExtract(def, locale, config);
+  }
   return dir === "desc" ? desc(expr) : asc(expr);
 }
 
@@ -384,9 +465,10 @@ export async function queryCollectionContent(
   origin: string,
   { collection, defs }: DeliveryCollection,
   query: ContentQuery,
+  config: LocaleConfig,
 ): Promise<{ response: DeliveryListResponse; etag: string }> {
   const conds = [eq(entries.collectionId, collection.id), isNotNull(entries.publishedData)];
-  for (const filter of buildFilters(defs, query.filters)) conds.push(filter);
+  for (const filter of buildFilters(defs, query.filters, query.locale, config)) conds.push(filter);
   const where = and(...conds);
 
   const totalRow = await db.select({ n: count() }).from(entries).where(where).get();
@@ -394,26 +476,31 @@ export async function queryCollectionContent(
     .select()
     .from(entries)
     .where(where)
-    .orderBy(buildSort(defs, query.sort))
+    .orderBy(buildSort(defs, query.sort, query.locale, config))
     .limit(query.limit)
     .offset(query.offset)
     .all();
 
-  const data = rows.map((r) => toDeliveryEntry(r, defs));
+  const data = rows.map((r) => toDeliveryEntry(r, defs, query.locale, config));
   await expandMedia(db, origin, defs, data);
-  await expandReferences(db, defs, data);
+  await expandReferences(db, defs, data, query.locale, config);
 
   // ETag changes when the collection's content changes (content_version) OR when the
   // query shape changes — so two different filters never share a 304. `refSig` folds in
   // the versions of every expanded target collection, so renaming a referenced entry
-  // busts this list too. (If opt-in deeper/`expand` is ever added, its shape must also be
-  // folded into `queryKey` here, or expanded and non-expanded responses collide on a 304.)
+  // busts this list too. `locale` is folded in only when 2+ locales are configured (same
+  // guard + rationale as entryEtag), so es/en lists never collide on a 304 while a single-
+  // locale deployment's list ETags stay byte-identical. (If opt-in deeper/`expand` is ever
+  // added, its shape must also be folded into `queryKey` here, or expanded and non-expanded
+  // responses collide on a 304.)
   const refSig = await referencedVersionSignature(db, defs);
   const baseKey = `${query.limit}:${query.offset}:${query.sort ?? ""}:${query.filters
     .map((f) => `${f.field}.${f.op}=${f.value}`)
     .join("&")}`;
-  const queryKey = refSig ? `${baseKey}:${refSig}` : baseKey;
-  const etag = `W/"${collection.slug}-${collection.contentVersion}-${hashString(queryKey)}"`;
+  const parts = [baseKey];
+  if (refSig) parts.push(refSig);
+  if (config.locales.length > 1) parts.push(`locale=${query.locale}`);
+  const etag = `W/"${collection.slug}-${collection.contentVersion}-${hashString(parts.join(":"))}"`;
 
   return {
     response: {
@@ -428,6 +515,8 @@ export async function getSingletonContent(
   db: DrizzleDb,
   origin: string,
   { collection, defs }: DeliveryCollection,
+  locale: string,
+  config: LocaleConfig,
 ): Promise<{ data: DeliveryEntry; etag: string }> {
   const row = await db
     .select()
@@ -437,10 +526,10 @@ export async function getSingletonContent(
     .limit(1)
     .get();
   if (!row) throw notFound("Not published");
-  const data = toDeliveryEntry(row, defs);
+  const data = toDeliveryEntry(row, defs, locale, config);
   await expandMedia(db, origin, defs, [data]);
-  await expandReferences(db, defs, [data]);
-  return { data, etag: entryEtag(row, await referencedVersionSignature(db, defs)) };
+  await expandReferences(db, defs, [data], locale, config);
+  return { data, etag: entryEtag(row, await referencedVersionSignature(db, defs), locale, config) };
 }
 
 export async function getContentItem(
@@ -448,6 +537,8 @@ export async function getContentItem(
   origin: string,
   { collection, defs }: DeliveryCollection,
   idOrSlug: string,
+  locale: string,
+  config: LocaleConfig,
 ): Promise<{ data: DeliveryEntry; etag: string }> {
   const row = await db
     .select()
@@ -461,8 +552,8 @@ export async function getContentItem(
     )
     .get();
   if (!row) throw notFound("Not found");
-  const data = toDeliveryEntry(row, defs);
+  const data = toDeliveryEntry(row, defs, locale, config);
   await expandMedia(db, origin, defs, [data]);
-  await expandReferences(db, defs, [data]);
-  return { data, etag: entryEtag(row, await referencedVersionSignature(db, defs)) };
+  await expandReferences(db, defs, [data], locale, config);
+  return { data, etag: entryEtag(row, await referencedVersionSignature(db, defs), locale, config) };
 }
