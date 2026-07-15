@@ -29,6 +29,8 @@ import {
   setCommerceEnabled,
   isFormsEnabled,
   setFormsEnabled,
+  getContentLocales,
+  setContentLocales,
 } from "../services/settings";
 import {
   createProduct,
@@ -47,6 +49,7 @@ import {
 import { getProductFields, setProductFields } from "../services/store/product-schema";
 
 import { FIELD_TYPE_LIST, type FieldOptions } from "@/shared/field-types";
+import { isLocalized } from "@/shared/localization";
 import { APP_NAME, APP_VERSION } from "@/shared/constants";
 import type { CategoryDTO, EntryData, EntryDetail, MediaDTO, ProductDetail, ProductStatus } from "@/shared/api-types";
 
@@ -135,7 +138,14 @@ const entryData = z
   .describe(
     "Field values keyed by field name. rich_text accepts a plain string or a TipTap JSON doc; " +
       "picture/video take a media id; link takes { url, label?, newTab? }; reference takes a target " +
-      "entry id or slug (an array when multiple:true); select takes one of the field's preset choice strings.",
+      "entry id or slug (an array when multiple:true); select takes one of the field's preset choice strings. " +
+      "LOCALIZED fields (options.localized is true — check get_collection; only text/rich_text/number/boolean/" +
+      "link/select can be localized) take a per-language MAP { [locale]: value } instead of a bare value, e.g. " +
+      '{ "es": "Hola", "en": "Hello" }, where each key is a configured locale code from get_cms_info ' +
+      "(localization.locales). You may fill only some languages — a missing translation falls back to the " +
+      "default locale at delivery; a REQUIRED localized field needs at least the default-locale value to " +
+      "publish. Writing an unconfigured/typo'd locale code is accepted silently, so use only codes from " +
+      "localization.locales. Non-localized fields (and all picture/video/reference) always take a bare value.",
   );
 
 function toFieldInputs(
@@ -181,18 +191,20 @@ function summarizeEntry(e: EntryDetail, includePublished = false) {
 }
 
 // Compact field-type reference embedded in get_cms_info so an AI can model from a cold start.
+// `localized` (text/rich_text/number/boolean/link/select only) makes a field store a per-language
+// { [locale]: value } map; see the localization block + notes in get_cms_info.
 const FIELD_TYPE_REFERENCE = [
-  { type: "text", stores: "string", options: "multiline, default, placeholder, minLength, maxLength, required, help" },
+  { type: "text", stores: "string", options: "multiline, default, placeholder, minLength, maxLength, required, localized, help" },
   {
     type: "rich_text",
     stores: "{ json, html } — pass a plain string OR a TipTap doc; HTML is regenerated server-side",
-    options: "placeholder, required, help",
+    options: "placeholder, required, localized, help",
   },
-  { type: "number", stores: "number", options: "integer, min, max, default, placeholder, required, help" },
-  { type: "boolean", stores: "boolean", options: "default, help" },
+  { type: "number", stores: "number", options: "integer, min, max, default, placeholder, required, localized, help" },
+  { type: "boolean", stores: "boolean", options: "default, localized, help" },
   { type: "picture", stores: "media id of an image (use list_media or upload_media_from_url)", options: "required, help" },
   { type: "video", stores: "media id of a video", options: "required, help" },
-  { type: "link", stores: "{ url, label?, newTab? }", options: "allowRelative, required, help" },
+  { type: "link", stores: "{ url, label?, newTab? }", options: "allowRelative, required, localized, help" },
   {
     type: "reference",
     stores:
@@ -202,7 +214,7 @@ const FIELD_TYPE_REFERENCE = [
   {
     type: "select",
     stores: "a string that must be one of the field's preset `choices` (enforced at publish)",
-    options: "choices (the preset options; at least one, required), default (must be one of choices), placeholder, required, help",
+    options: "choices (the preset options; at least one, required), default (must be one of choices), placeholder, required, localized, help",
   },
 ];
 
@@ -221,6 +233,7 @@ export const TOOLS: ToolDef[] = [
       const entriesTotal = cols.reduce((sum, c) => sum + c.entryCount, 0);
       const commerceEnabled = await isCommerceEnabled(ctx.db);
       const formsEnabled = await isFormsEnabled(ctx.db);
+      const localeConfig = await getContentLocales(ctx.db);
       return {
         name: APP_NAME,
         version: APP_VERSION,
@@ -241,12 +254,18 @@ export const TOOLS: ToolDef[] = [
         // submission endpoint (/api/v1/contact-forms/{key}/submissions) become active. OFF by
         // default. Toggle with set_forms_enabled.
         forms: { enabled: formsEnabled },
+        // Field-level content localization. `locales` is the set of configured language codes and
+        // `default` is the fallback delivered when a translation is missing. A field with
+        // options.localized:true stores a per-language { [locale]: value } map. Read/change the set
+        // with get_content_locales / add_content_locale.
+        localization: { locales: localeConfig.locales, default: localeConfig.default },
         notes: [
           "Collections hold many entries; singletons hold exactly one (auto-created on first edit/publish).",
           "Entries are draft → publish. Delivery serves only published data — set publish:true on create_entry, or call publish_entry.",
           "rich_text accepts a plain string (wrapped into paragraphs) or a TipTap JSON document.",
           "picture/video fields store a media id — obtain one via list_media or upload_media_from_url.",
           "reference fields link entries across collections: pass a target entry id or slug (an array when multiple). Delivery returns them expanded with the target's title; a required reference to an unpublished target is blocked at publish.",
+          "Multi-language: a field marked localized (options.localized:true, text/rich_text/number/boolean/link/select only) stores a value per language. Author it by passing a { [locale]: value } map (e.g. { es, en }) to create_entry/update_entry; delivery serves one language via ?locale= and falls back to the default. Add languages with add_content_locale; read them here or via get_content_locales.",
         ],
       };
     },
@@ -283,6 +302,52 @@ export const TOOLS: ToolDef[] = [
   }),
 
   defineTool({
+    name: "get_content_locales",
+    description:
+      "Get the content languages available for field-level localization: `locales` (the configured " +
+      "language codes) and `default` (the fallback delivered when a translation is missing). A field " +
+      "marked localized (options.localized:true) stores a value per language. Add languages with " +
+      "add_content_locale. Also included in get_cms_info under `localization`.",
+    schema: z.object({}),
+    handler: async (ctx) => {
+      const config = await getContentLocales(ctx.db);
+      return { locales: config.locales, default: config.default };
+    },
+  }),
+
+  defineTool({
+    name: "add_content_locale",
+    description:
+      "Add a content language for field-level localization. Safe and additive: it only appends to the " +
+      "current set — it never removes a language or touches stored content, so existing translations are " +
+      "always preserved. `locale` is a BCP-47-ish code (e.g. 'en', 'pt-BR'); adding one that already " +
+      "exists is a no-op for the list. Set makeDefault:true to also make it the default/fallback language " +
+      "(works whether the locale is new or already present — this is how you change the default). After " +
+      "adding a language, mark fields localized (options.localized:true via set_collection_fields) and " +
+      "fill each language by passing a { [locale]: value } map to create_entry/update_entry. Returns the " +
+      "updated { locales, default }. (Removing a language is intentionally a deliberate admin-UI action, " +
+      "since it would orphan that language's stored content.)",
+    schema: z.object({
+      locale: z.string().describe("Language code to add, e.g. 'en' or 'pt-BR'. BCP-47-ish (es, en, pt-BR)."),
+      makeDefault: z
+        .boolean()
+        .optional()
+        .describe("Also make this the default/fallback language. Default false."),
+    }),
+    handler: async (ctx, args) => {
+      const current = await getContentLocales(ctx.db);
+      const locales = current.locales.includes(args.locale)
+        ? current.locales
+        : [...current.locales, args.locale];
+      const config = await setContentLocales(ctx.db, {
+        locales,
+        default: args.makeDefault ? args.locale : current.default,
+      });
+      return { locales: config.locales, default: config.default };
+    },
+  }),
+
+  defineTool({
     name: "list_collections",
     description: "List all collections and singletons with their field and entry counts.",
     schema: z.object({}),
@@ -313,7 +378,15 @@ export const TOOLS: ToolDef[] = [
         description: d.description,
         titleField: d.titleField,
         entries: d.entryCount,
-        fields: d.fields.map((f) => ({ name: f.name, label: f.label, type: f.type, options: f.options })),
+        fields: d.fields.map((f) => ({
+          name: f.name,
+          label: f.label,
+          type: f.type,
+          options: f.options,
+          // Explicit convenience flag: true when this field stores a per-language { [locale]: value }
+          // map. Author such fields by passing a locale map to create_entry/update_entry.
+          localized: isLocalized({ type: f.type, options: f.options }),
+        })),
       };
     },
   }),

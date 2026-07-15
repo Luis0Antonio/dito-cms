@@ -84,13 +84,14 @@ Always call **`get_cms_info`** before modelling or writing content. It returns a
 - the current `collections` (slug, name, type, field/entry counts)
 - the `fieldTypes` reference (what each type stores and its options)
 - `store.enabled` — whether the optional commerce module is on
+- `localization` — the configured content languages (`locales`) and the `default` fallback
 
 This is the instance's own description; the tables below are the stable capability map.
 
 ## Tools
 
-The server exposes **19 always-on tools** plus **11 Store tools that appear only when the
-commerce module is enabled** (30 total). Tool names and one-line summaries are below; the
+The server exposes **21 always-on tools** plus **11 Store tools that appear only when the
+commerce module is enabled** (32 total). Tool names and one-line summaries are below; the
 **authoritative, always-current input schemas come from MCP `tools/list`** (and `get_cms_info`
 for the field-type options). This page intentionally does not copy the schemas — connect and read
 them live.
@@ -102,6 +103,8 @@ them live.
 | `get_cms_info` | Cold-start overview of the instance. Call first. |
 | `set_store_enabled` | Enable/disable the optional Store (commerce) module. Always available. |
 | `set_forms_enabled` | Enable/disable the optional Forms (contact forms) module. Always available. |
+| `get_content_locales` | List the content languages for localization (codes + default fallback). |
+| `add_content_locale` | Add a content language (additive/safe); optionally make it the default. |
 
 ### Collections & schema
 
@@ -161,6 +164,15 @@ Enable with `set_store_enabled` first (or from **Settings**). These then become 
   it (under `referencedBy`) — those links resolve to `null` afterward. To convert legacy "link by
   name" text fields into real references, add the reference field then run
   `migrate_string_field_to_reference` (matches on the target's title, reports unmatched/ambiguous).
+- **Multi-language (localization).** A field can be marked **`localized`** in its options — only
+  `text`, `rich_text`, `number`, `boolean`, `link` and `select` support it (media and references stay
+  shared). A localized field stores a per-language map `{ [locale]: value }`: author it by passing
+  e.g. `{ "es": "Hola", "en": "Hello" }` as that field's value in `create_entry`/`update_entry`,
+  using the locale codes from `get_cms_info` → `localization.locales`. Configure the languages with
+  **`add_content_locale`** (additive — never removes a language or orphans content) and read them via
+  `get_content_locales`. The delivery API serves one language with `?locale=`, falling back to the
+  default when a translation is missing; a **required** localized field needs at least the
+  default-locale value to publish. `get_collection` reports each field's `localized` flag.
 - **Draft → publish.** Edits save as drafts; the delivery API serves only the last published
   version. Required fields and bounds are enforced at publish time, not while drafting.
 - **Destructive changes are guarded.** Removing a field or changing its type needs
