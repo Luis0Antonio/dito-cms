@@ -6,4 +6,12 @@ import type { FieldDTO } from "@/shared/api-types";
 export interface EntryFieldInputProps {
   control: Control<FieldValues>;
   field: FieldDTO;
+  /**
+   * The content locale currently being edited. Set only in the entry editor; when a field is
+   * localized, its input binds to `${field.name}.${activeLocale}`. Absent (e.g. the product
+   * editor, where fields are never localized) → the field binds to its bare name.
+   */
+  activeLocale?: string;
+  /** All configured content locales, for the per-locale filled/empty indicator. */
+  locales?: string[];
 }

@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { RequiredMark } from "./field-frame";
+import { LocaleIndicator, RequiredMark, localizedPath } from "./field-frame";
 import type { EntryFieldInputProps } from "./types";
 
 import { emptyRichTextDoc, isSafeHref, type RichTextDoc } from "@/shared/richtext";
@@ -174,18 +174,28 @@ function RichTextEditor({
 }
 
 /** Rich-text field: TipTap editor wrapped in the shared label/help/error frame. */
-export function RichTextFieldInput({ control, field }: EntryFieldInputProps): React.ReactElement {
+export function RichTextFieldInput({
+  control,
+  field,
+  activeLocale,
+  locales,
+}: EntryFieldInputProps): React.ReactElement {
+  // For a localized field the path is `name.locale`; keying the editor on it remounts (reloading
+  // content) when the active locale changes, since TipTap only reads `content` on init.
+  const path = localizedPath(field, activeLocale);
   return (
     <FormField
       control={control}
-      name={field.name}
+      name={path}
       render={({ field: rhf }) => (
         <FormItem>
           <FormLabel>
             {field.label}
             <RequiredMark field={field} />
+            <LocaleIndicator control={control} field={field} activeLocale={activeLocale} locales={locales} />
           </FormLabel>
           <RichTextEditor
+            key={path}
             value={rhf.value}
             onChange={rhf.onChange}
             placeholder={field.options.placeholder}

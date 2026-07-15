@@ -6,6 +6,7 @@ import { titleFromValue } from "./form-values";
 
 import { collectionDetailQueryOptions } from "@/app/api/collections";
 import { entryDetailQueryOptions } from "@/app/api/entries";
+import { projectSettingsQueryOptions, toLocaleConfig } from "@/app/api/settings";
 import { ErrorState } from "@/app/components/common/error-state";
 import { Skeleton } from "@/app/components/ui/skeleton";
 
@@ -50,17 +51,24 @@ function EditorHeader({
 export function NewEntryPage(): React.ReactElement {
   const params = useParams({ strict: false }) as { slug?: string };
   const slug = params.slug ?? "";
-  const { data: collection, isPending, isError, error, refetch } = useQuery(
-    collectionDetailQueryOptions(slug),
-  );
+  const collectionQuery = useQuery(collectionDetailQueryOptions(slug));
+  const settingsQuery = useQuery(projectSettingsQueryOptions);
 
-  if (isPending) return <EditorSkeleton />;
-  if (isError) return <ErrorState error={error} onRetry={() => void refetch()} />;
+  if (collectionQuery.isPending || settingsQuery.isPending) return <EditorSkeleton />;
+  if (collectionQuery.isError) {
+    return <ErrorState error={collectionQuery.error} onRetry={() => void collectionQuery.refetch()} />;
+  }
+  if (settingsQuery.isError) {
+    return <ErrorState error={settingsQuery.error} onRetry={() => void settingsQuery.refetch()} />;
+  }
+
+  const collection = collectionQuery.data;
+  const localeConfig = toLocaleConfig(settingsQuery.data);
 
   return (
     <div className="space-y-6">
       <EditorHeader slug={slug} name={collection.name} heading="New entry" />
-      <EntryEditor collection={collection} entry={null} />
+      <EntryEditor collection={collection} entry={null} localeConfig={localeConfig} />
     </div>
   );
 }
@@ -73,25 +81,32 @@ export function EditEntryPage(): React.ReactElement {
 
   const collectionQuery = useQuery(collectionDetailQueryOptions(slug));
   const entryQuery = useQuery(entryDetailQueryOptions(id));
+  const settingsQuery = useQuery(projectSettingsQueryOptions);
 
-  if (collectionQuery.isPending || entryQuery.isPending) return <EditorSkeleton />;
+  if (collectionQuery.isPending || entryQuery.isPending || settingsQuery.isPending) {
+    return <EditorSkeleton />;
+  }
   if (collectionQuery.isError) {
     return <ErrorState error={collectionQuery.error} onRetry={() => void collectionQuery.refetch()} />;
   }
   if (entryQuery.isError) {
     return <ErrorState error={entryQuery.error} onRetry={() => void entryQuery.refetch()} />;
   }
+  if (settingsQuery.isError) {
+    return <ErrorState error={settingsQuery.error} onRetry={() => void settingsQuery.refetch()} />;
+  }
 
   const collection = collectionQuery.data;
   const entry = entryQuery.data;
+  const localeConfig = toLocaleConfig(settingsQuery.data);
   const heading =
-    (collection.titleField ? titleFromValue(entry.draftData[collection.titleField]) : "") ||
+    (collection.titleField ? titleFromValue(entry.draftData[collection.titleField], localeConfig) : "") ||
     "Edit entry";
 
   return (
     <div className="space-y-6">
       <EditorHeader slug={slug} name={collection.name} heading={heading} />
-      <EntryEditor collection={collection} entry={entry} />
+      <EntryEditor collection={collection} entry={entry} localeConfig={localeConfig} />
     </div>
   );
 }

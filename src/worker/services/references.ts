@@ -5,9 +5,11 @@ import type { DrizzleDb } from "../db/client";
 import { collections, entries, fields } from "../db/schema";
 import { hashString } from "../lib/hash";
 import { notFound, validationError } from "../lib/errors";
+import { getContentLocales } from "./settings";
 
 import { D1_IN_CHUNK } from "@/shared/constants";
 import { parseFieldOptions, type FieldOptions } from "@/shared/field-types";
+import { resolveLocalizedValue, type LocaleConfig } from "@/shared/localization";
 import type { FieldDefinition } from "@/shared/validation";
 import type { EntryData, EntryUsage, ReferenceMigrationResult } from "@/shared/api-types";
 
@@ -181,12 +183,16 @@ export async function resolveReferenceValues(
   return out;
 }
 
-/** Best-effort human title for a usage row, drawn from the collection's title field. */
-function titleFromJson(json: string, titleField: string | null): string {
+/**
+ * Best-effort human title for a usage row, drawn from the collection's title field. A localized
+ * title field stores a `{ [locale]: value }` map, so resolve it to the default locale first (a
+ * bare/unmigrated value passes through unchanged).
+ */
+function titleFromJson(json: string, titleField: string | null, config: LocaleConfig): string {
   if (!titleField) return "Untitled";
   try {
     const data = JSON.parse(json) as EntryData;
-    const v = data[titleField];
+    const v = resolveLocalizedValue(data[titleField], config.default, config);
     if (typeof v === "string" && v.trim()) return v.trim();
     if (typeof v === "number" || typeof v === "boolean") return String(v);
   } catch {
@@ -201,6 +207,7 @@ function titleFromJson(json: string, titleField: string | null): string {
  * ids are stored as quoted JSON string values, so `"<id>"` avoids substring false positives.
  */
 export async function getEntryUsage(db: DrizzleDb, id: string): Promise<EntryUsage> {
+  const localeConfig = await getContentLocales(db);
   const needle = `%"${id}"%`;
   const rows = await db
     .select({
@@ -221,7 +228,7 @@ export async function getEntryUsage(db: DrizzleDb, id: string): Promise<EntryUsa
       entryId: r.entryId,
       collectionSlug: r.collectionSlug,
       collectionName: r.collectionName,
-      title: titleFromJson(r.draftData, r.titleField),
+      title: titleFromJson(r.draftData, r.titleField, localeConfig),
     })),
   };
 }

@@ -11,6 +11,8 @@ import {
   setFormsEnabled,
   getStorageLimitGb,
   setStorageLimitGb,
+  getContentLocales,
+  setContentLocales,
 } from "../services/settings";
 import { getStorageUsedBytes } from "../services/media";
 import { isSystemAdmin } from "../services/roles";
@@ -34,6 +36,7 @@ async function readLogo(db: DrizzleDb): Promise<string | null> {
 }
 
 async function readSettings(db: DrizzleDb, userId: string | undefined): Promise<ProjectSettings> {
+  const localeConfig = await getContentLocales(db);
   return {
     projectName: await readProjectName(db),
     logo: await readLogo(db),
@@ -43,6 +46,8 @@ async function readSettings(db: DrizzleDb, userId: string | undefined): Promise<
     storageUsedBytes: await getStorageUsedBytes(db),
     // Read-only figures above go to every admin; this flag only toggles the editable input.
     canEditStorageLimit: await isSystemAdmin(db, userId),
+    contentLocales: localeConfig.locales,
+    defaultLocale: localeConfig.default,
   };
 }
 
@@ -92,6 +97,17 @@ settingsRouter.patch("/", async (c) => {
   }
   if (typeof body.storageLimitGb === "number") {
     await setStorageLimitGb(db, body.storageLimitGb);
+  }
+  // Content languages: `contentLocales` and/or `defaultLocale` may arrive together or apart;
+  // merge with the current config so `default ∈ locales` can't fail transiently. Regular-admin
+  // editable — it's not billing-sensitive, so no System Admin gate.
+  if (Array.isArray(body.contentLocales) || typeof body.defaultLocale === "string") {
+    const current = await getContentLocales(db);
+    const locales = Array.isArray(body.contentLocales)
+      ? (body.contentLocales as unknown[]).filter((l): l is string => typeof l === "string")
+      : current.locales;
+    const defaultLocale = typeof body.defaultLocale === "string" ? body.defaultLocale : current.default;
+    await setContentLocales(db, { locales, default: defaultLocale });
   }
   return c.json(await readSettings(db, c.get("authUserId")));
 });

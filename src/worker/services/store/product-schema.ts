@@ -100,6 +100,9 @@ function normalizeField(input: FieldInput, index: number): NormalizedField {
     }
     throw err;
   }
+  // Localization is a collections-only concept (D3): product customData is never a locale map,
+  // so strip the flag if a client set it — otherwise the shared validator would expect a map.
+  delete options.localized;
   return { name: input.name, label: input.label.trim(), type: input.type, options };
 }
 

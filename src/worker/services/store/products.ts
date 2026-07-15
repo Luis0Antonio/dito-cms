@@ -19,6 +19,7 @@ import { assertCategoryId } from "./categories";
 
 import { D1_IN_CHUNK, MAX_DELIVERY_LIMIT } from "@/shared/constants";
 import type { FieldDefinition } from "@/shared/validation";
+import { DEFAULT_LOCALE_CONFIG } from "@/shared/localization";
 import { slugError } from "@/shared/slug";
 import type {
   CatalogCategory,
@@ -214,11 +215,23 @@ async function validateCustomData(
   status: ProductStatus,
 ): Promise<EntryData> {
   const normalized = regenerateRichText(defs, raw);
-  const cleaned = validateFieldData(defs, normalized, "draft", { draft: "Some product fields are invalid" });
+  // Products are never localized (D3): fields carry no `localized` flag (stripped in
+  // product-schema's normalizeField), so a single-locale config leaves the shared validator inert.
+  const cleaned = validateFieldData(
+    defs,
+    normalized,
+    "draft",
+    { draft: "Some product fields are invalid" },
+    DEFAULT_LOCALE_CONFIG,
+  );
   if (status === "active") {
-    validateFieldData(defs, normalized, "publish", {
-      publish: "Product can't be active until its required fields are filled",
-    });
+    validateFieldData(
+      defs,
+      normalized,
+      "publish",
+      { publish: "Product can't be active until its required fields are filled" },
+      DEFAULT_LOCALE_CONFIG,
+    );
   }
   await assertMediaRefs(db, defs, cleaned);
   return cleaned;

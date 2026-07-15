@@ -5,6 +5,7 @@ import { settings } from "../db/schema";
 import { validationError } from "../lib/errors";
 
 import { BYTES_PER_GB, DEFAULT_STORAGE_LIMIT_GB, MAX_STORAGE_LIMIT_GB } from "@/shared/constants";
+import { DEFAULT_LOCALE_CONFIG, LOCALE_CODE_RE, type LocaleConfig } from "@/shared/localization";
 
 export async function getSetting(db: DrizzleDb, key: string): Promise<string | undefined> {
   const row = await db.select().from(settings).where(eq(settings.key, key)).get();
@@ -81,6 +82,66 @@ export async function setStorageLimitGb(db: DrizzleDb, gb: number): Promise<void
     });
   }
   await setSetting(db, STORAGE_LIMIT_GB_KEY, String(gb));
+}
+
+// --- Content locales (field-level localization) ------------------------------
+// The set of content languages + the default/fallback, stored as one JSON row. Absent → the
+// single-locale default, so single-language deployments are unaffected until a field is marked
+// localized. A localized field then stores a `{ [locale]: value }` map (see shared/localization.ts).
+
+export const CONTENT_LOCALES_KEY = "content_locales";
+
+function parseLocaleConfig(raw: string | undefined): LocaleConfig {
+  if (!raw) return { ...DEFAULT_LOCALE_CONFIG };
+  try {
+    const parsed = JSON.parse(raw) as Partial<LocaleConfig>;
+    const locales = Array.isArray(parsed.locales)
+      ? parsed.locales.filter((l): l is string => typeof l === "string")
+      : [];
+    if (locales.length === 0) return { ...DEFAULT_LOCALE_CONFIG };
+    const fallback =
+      typeof parsed.default === "string" && locales.includes(parsed.default)
+        ? parsed.default
+        : locales[0];
+    return { locales, default: fallback };
+  } catch {
+    return { ...DEFAULT_LOCALE_CONFIG };
+  }
+}
+
+/** The configured content locales + default, or the single-locale default when unset. */
+export async function getContentLocales(db: DrizzleDb): Promise<LocaleConfig> {
+  return parseLocaleConfig(await getSetting(db, CONTENT_LOCALES_KEY));
+}
+
+/**
+ * Persist the content locale config. Validates a non-empty, de-duplicated list of well-formed
+ * codes with `default` among them. Removing a locale that holds data is lossy but allowed (the
+ * orphaned keys stay in JSON, ignored at delivery); no data is deleted here.
+ */
+export async function setContentLocales(db: DrizzleDb, config: LocaleConfig): Promise<LocaleConfig> {
+  const locales = Array.from(new Set((config.locales ?? []).map((l) => l.trim()).filter(Boolean)));
+  if (locales.length === 0) {
+    throw validationError("At least one content language is required", {
+      contentLocales: "Add at least one language",
+    });
+  }
+  for (const code of locales) {
+    if (!LOCALE_CODE_RE.test(code)) {
+      throw validationError(`Invalid locale code "${code}"`, {
+        contentLocales: `"${code}" is not a valid locale code (e.g. es, en, pt-BR)`,
+      });
+    }
+  }
+  const fallback = (config.default ?? "").trim();
+  if (!locales.includes(fallback)) {
+    throw validationError("The default language must be one of the configured languages", {
+      defaultLocale: "Choose a default from the configured languages",
+    });
+  }
+  const next: LocaleConfig = { locales, default: fallback };
+  await setSetting(db, CONTENT_LOCALES_KEY, JSON.stringify(next));
+  return next;
 }
 
 function generateSecret(): string {

@@ -7,6 +7,7 @@ import { EntryEditor } from "./entry-editor";
 
 import { collectionDetailQueryOptions } from "@/app/api/collections";
 import { singletonEntryQueryOptions } from "@/app/api/entries";
+import { projectSettingsQueryOptions, toLocaleConfig } from "@/app/api/settings";
 import { useI18n } from "@/app/i18n";
 import { Button } from "@/app/components/ui/button";
 import { ErrorState } from "@/app/components/common/error-state";
@@ -24,12 +25,19 @@ function PageSkeleton(): React.ReactElement {
 
 function SingletonEditor({ collection }: { collection: CollectionDetail }): React.ReactElement {
   const { t } = useI18n();
-  const { data: entry, isPending, isError, error, refetch } = useQuery(
-    singletonEntryQueryOptions(collection.slug),
-  );
+  const entryQuery = useQuery(singletonEntryQueryOptions(collection.slug));
+  const settingsQuery = useQuery(projectSettingsQueryOptions);
 
-  if (isPending) return <PageSkeleton />;
-  if (isError) return <ErrorState error={error} onRetry={() => void refetch()} />;
+  if (entryQuery.isPending || settingsQuery.isPending) return <PageSkeleton />;
+  if (entryQuery.isError) {
+    return <ErrorState error={entryQuery.error} onRetry={() => void entryQuery.refetch()} />;
+  }
+  if (settingsQuery.isError) {
+    return <ErrorState error={settingsQuery.error} onRetry={() => void settingsQuery.refetch()} />;
+  }
+
+  const entry = entryQuery.data;
+  const localeConfig = toLocaleConfig(settingsQuery.data);
 
   return (
     <div className="space-y-6">
@@ -52,7 +60,7 @@ function SingletonEditor({ collection }: { collection: CollectionDetail }): Reac
           </Button>
         </div>
       </div>
-      <EntryEditor collection={collection} entry={entry} hideBack />
+      <EntryEditor collection={collection} entry={entry} localeConfig={localeConfig} hideBack />
     </div>
   );
 }

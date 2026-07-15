@@ -75,6 +75,14 @@ export interface ProjectSettings {
    * to everyone; this only toggles the editable input. The server re-checks on PATCH regardless.
    */
   canEditStorageLimit: boolean;
+  /**
+   * Configured content languages for field-level localization, as BCP-47-ish codes (e.g.
+   * `["es","en"]`). A field marked `localized` stores a `{ [locale]: value }` map keyed by these.
+   * Single-entry by default, so non-localized deployments are unaffected. Editable by any admin.
+   */
+  contentLocales: string[];
+  /** The default/fallback content locale; always one of `contentLocales`. */
+  defaultLocale: string;
 }
 
 // --- Deploy hook -------------------------------------------------------------
@@ -562,6 +570,18 @@ export interface DeliveryCollectionSchema {
   type: CollectionType;
   titleField: string | null;
   fields: Array<{ name: string; label: string; type: FieldType; options: FieldOptions }>;
+}
+
+/**
+ * The public `/api/v1/collections` payload: the collection schemas plus the deployment's
+ * content locales. A typed client uses `locales`/`defaultLocale` to know which `?locale=`
+ * values are valid and which is the delivery fallback; each field's `options.localized`
+ * flag (already carried in `fields[].options`) tells it which fields are locale-keyed.
+ */
+export interface DeliverySchemaResponse {
+  collections: DeliveryCollectionSchema[];
+  locales: string[];
+  defaultLocale: string;
 }
 
 // --- Export / Import (whole-project backup) ---------------------------------

@@ -47,6 +47,12 @@ export interface FieldOptions {
   multiple?: boolean;
   /** select: the preset list of text options the value must be one of. */
   choices?: string[];
+  /**
+   * Localizable types only (text/rich_text/number/boolean/link/select): when true, the stored
+   * value becomes a per-locale map `{ [locale]: value }` instead of a bare value. Media &
+   * reference schemas don't declare it, so it can never be set on those. See shared/localization.ts.
+   */
+  localized?: boolean;
 }
 
 export interface FieldTypeDef {
@@ -65,6 +71,9 @@ export interface FieldTypeDef {
 const help = z.string().trim().max(280).optional();
 const required = z.boolean().optional();
 const placeholder = z.string().trim().max(120).optional();
+// Only declared on the localizable types below (not media/reference), so `localized` can
+// never round-trip onto a field type that doesn't support it — zod strips unknown keys.
+const localized = z.boolean().optional();
 
 /** Attach a "default must satisfy the field's own value schema" check. */
 function withDefaultCheck<T extends z.ZodType<FieldOptions>>(
@@ -101,6 +110,7 @@ const textOptionsSchema = withDefaultCheck(
       required,
       help,
       placeholder,
+      localized,
       multiline: z.boolean().optional(),
       default: z.string().optional(),
       minLength: z.number().int().min(0).optional(),
@@ -129,6 +139,7 @@ const richTextOptionsSchema: z.ZodType<FieldOptions> = z.object({
   required,
   help,
   placeholder,
+  localized,
 });
 
 // --- number ------------------------------------------------------------------
@@ -149,6 +160,7 @@ const numberOptionsSchema = withDefaultCheck(
       required,
       help,
       placeholder,
+      localized,
       integer: z.boolean().optional(),
       min: z.number().optional(),
       max: z.number().optional(),
@@ -169,6 +181,7 @@ function booleanValueSchema(): z.ZodTypeAny {
 
 const booleanOptionsSchema: z.ZodType<FieldOptions> = z.object({
   help,
+  localized,
   default: z.boolean().optional(),
 });
 
@@ -214,6 +227,7 @@ function linkValueSchema(options: FieldOptions, mode: ValueMode): z.ZodTypeAny {
 const linkOptionsSchema: z.ZodType<FieldOptions> = z.object({
   required,
   help,
+  localized,
   allowRelative: z.boolean().optional(),
 });
 
@@ -258,6 +272,7 @@ const selectOptionsSchema = withDefaultCheck(
     required,
     help,
     placeholder,
+    localized,
     default: z.string().optional(),
     // The preset options: at least one, each trimmed + non-empty, no duplicates.
     choices: z
