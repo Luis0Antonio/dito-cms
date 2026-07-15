@@ -11,6 +11,7 @@ import {
   type FieldOptions,
   type FieldType,
 } from "@/shared/field-types";
+import { LOCALIZABLE_TYPES } from "@/shared/localization";
 import { camelize, fieldNameError } from "@/shared/slug";
 import type { FieldDTO } from "@/shared/api-types";
 import { Button } from "@/app/components/ui/button";
@@ -539,6 +540,14 @@ function TypeOptions({
   return (
     <div className={cn("space-y-4")}>
       {required}
+      {LOCALIZABLE_TYPES.has(type) ? (
+        <SwitchRow
+          control={control}
+          name="options.localized"
+          label="Localized"
+          description="Store a separate value per content language (configure languages in Settings)."
+        />
+      ) : null}
       {type === "text" ? (
         <>
           <SwitchRow control={control} name="options.multiline" label="Multi-line" />

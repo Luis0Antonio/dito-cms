@@ -16,10 +16,12 @@ import { hashString } from "../lib/hash";
 import { badRequest, conflict, notFound, validationError } from "../lib/errors";
 import { assertMediaRefs, toMediaDTO } from "./media";
 import { assertEntryRefs, resolveReferenceValues } from "./references";
-import { regenerateRichText, seedDefaults, validateFieldData } from "./field-data";
+import { normalizeLocalizedFields, regenerateRichText, seedDefaults, validateFieldData } from "./field-data";
+import { getContentLocales } from "./settings";
 
 import { parseFieldOptions, type FieldOptions } from "@/shared/field-types";
 import { type FieldDefinition } from "@/shared/validation";
+import { type LocaleConfig } from "@/shared/localization";
 import { isValidSlug } from "@/shared/slug";
 import { D1_IN_CHUNK } from "@/shared/constants";
 import type {
@@ -172,11 +174,22 @@ function mapSummary(row: EntryRow, titleField: string | null): EntrySummary {
 // --- normalization + validation ----------------------------------------------
 
 /** Validate entry data with entry-specific messages (wraps the shared validator). */
-function validate(defs: FieldDefinition[], data: EntryData, mode: "draft" | "publish"): EntryData {
-  return validateFieldData(defs, data, mode, {
-    draft: "Some fields are invalid",
-    publish: "Entry is not ready to publish",
-  });
+function validate(
+  defs: FieldDefinition[],
+  data: EntryData,
+  mode: "draft" | "publish",
+  config: LocaleConfig,
+): EntryData {
+  return validateFieldData(
+    defs,
+    data,
+    mode,
+    {
+      draft: "Some fields are invalid",
+      publish: "Entry is not ready to publish",
+    },
+    config,
+  );
 }
 
 function normalizeEntrySlug(slug: string | null | undefined): string | null {
@@ -352,12 +365,13 @@ export async function createEntry(
     throw conflict("This singleton already has an entry");
   }
 
+  const localeConfig = await getContentLocales(db);
   const inputData = input.resolveReferences
     ? await resolveReferenceValues(db, defs, input.data ?? {})
     : input.data ?? {};
-  const merged = { ...seedDefaults(defs), ...inputData };
+  const merged = normalizeLocalizedFields(defs, { ...seedDefaults(defs), ...inputData }, localeConfig);
   const normalized = regenerateRichText(defs, merged);
-  const draftData = validate(defs, normalized, "draft");
+  const draftData = validate(defs, normalized, "draft", localeConfig);
   await assertMediaRefs(db, defs, draftData);
   await assertEntryRefs(db, defs, draftData);
   const slugValue = normalizeEntrySlug(input.slug);
@@ -370,7 +384,7 @@ export async function createEntry(
   let publishedEtag: string | null = null;
   let publishedAt: number | null = null;
   if (input.publish) {
-    const publishedData = validate(defs, normalized, "publish");
+    const publishedData = validate(defs, normalized, "publish", localeConfig);
     await assertEntryRefs(db, defs, publishedData, { requirePublishedTargets: true });
     publishedJson = JSON.stringify(publishedData);
     publishedEtag = hashString(publishedJson);
@@ -421,12 +435,13 @@ export async function updateEntry(
   const values: Partial<typeof entries.$inferInsert> = { updatedAt: now, updatedBy: userId ?? null };
 
   if (patch.data !== undefined) {
+    const localeConfig = await getContentLocales(db);
     const patchData = patch.resolveReferences
       ? await resolveReferenceValues(db, defs, patch.data)
       : patch.data;
-    const merged = { ...parseJson(row.draftData), ...patchData };
+    const merged = normalizeLocalizedFields(defs, { ...parseJson(row.draftData), ...patchData }, localeConfig);
     const normalized = regenerateRichText(defs, merged);
-    const draft = validate(defs, normalized, "draft");
+    const draft = validate(defs, normalized, "draft", localeConfig);
     await assertMediaRefs(db, defs, draft);
     await assertEntryRefs(db, defs, draft);
     values.draftData = JSON.stringify(draft);
@@ -453,8 +468,12 @@ export async function publishEntry(
   const row = await findEntry(db, id);
   const { collection, defs } = await loadById(db, row.collectionId);
 
-  const normalized = regenerateRichText(defs, parseJson(row.draftData));
-  const publishedData = validate(defs, normalized, "publish");
+  const localeConfig = await getContentLocales(db);
+  const normalized = regenerateRichText(
+    defs,
+    normalizeLocalizedFields(defs, parseJson(row.draftData), localeConfig),
+  );
+  const publishedData = validate(defs, normalized, "publish", localeConfig);
   await assertMediaRefs(db, defs, publishedData);
   await assertEntryRefs(db, defs, publishedData, { requirePublishedTargets: true });
   const publishedJson = JSON.stringify(publishedData);
@@ -592,18 +611,29 @@ export async function importEntries(
   const newIds: string[] = [];
   if (exported.length === 0) return { idMap, newIds };
 
+  const localeConfig = await getContentLocales(db);
   const statements: BatchItem<"sqlite">[] = exported.map((e) => {
     const newId = nanoid();
     newIds.push(newId);
     if (typeof e.id === "string" && e.id) idMap.set(e.id, newId);
 
-    const draftData = validate(defs, regenerateRichText(defs, e.draftData ?? {}), "draft");
+    const draftData = validate(
+      defs,
+      regenerateRichText(defs, normalizeLocalizedFields(defs, e.draftData ?? {}, localeConfig)),
+      "draft",
+      localeConfig,
+    );
 
     let publishedJson: string | null = null;
     let publishedEtag: string | null = null;
     let publishedAt: number | null = null;
     if (e.publishedData !== null && e.publishedData !== undefined) {
-      const publishedData = validate(defs, regenerateRichText(defs, e.publishedData), "publish");
+      const publishedData = validate(
+        defs,
+        regenerateRichText(defs, normalizeLocalizedFields(defs, e.publishedData, localeConfig)),
+        "publish",
+        localeConfig,
+      );
       publishedJson = JSON.stringify(publishedData);
       publishedEtag = hashString(publishedJson);
       publishedAt = e.publishedAt;
@@ -758,7 +788,13 @@ export async function getOrCreateSingletonEntry(
   const existing = await firstEntry(db, collection.id);
   if (existing) return mapDetail(existing);
 
-  const draftData = validate(defs, regenerateRichText(defs, seedDefaults(defs)), "draft");
+  const localeConfig = await getContentLocales(db);
+  const draftData = validate(
+    defs,
+    regenerateRichText(defs, normalizeLocalizedFields(defs, seedDefaults(defs), localeConfig)),
+    "draft",
+    localeConfig,
+  );
   const now = Date.now();
   const id = nanoid();
   await db

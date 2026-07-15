@@ -311,6 +311,22 @@ export const en: Record<TranslationKey, string> = {
   "settings.general.storeEnable": "Enable the Store module",
   "settings.general.storeHint":
     "Turn on the store to manage products, categories and your catalog. While it's off, your content is unaffected.",
+  "settings.general.contentLanguages": "Content languages",
+  "settings.general.contentLanguagesHint":
+    "Mark schema fields as “Localized” to store a value per language. Sites pick a language with ?locale= on the delivery API.",
+  "settings.general.contentLanguagesLabel": "Languages",
+  "settings.general.contentLangDefaultBadge": "default",
+  "settings.general.contentLangAdd": "Add",
+  "settings.general.contentLangAddPlaceholder": "es, en, pt-BR",
+  "settings.general.contentLangCodeError": "Use a valid language code, e.g. es, en or pt-BR.",
+  "settings.general.contentLangRemove": "Remove {code}",
+  "settings.general.contentLangDefault": "Default language",
+  "settings.general.contentLangDefaultHint":
+    "The fallback language when a translation is missing at delivery.",
+  "settings.general.contentLangRemoveTitle": "Remove language?",
+  "settings.general.contentLangRemoveDescription":
+    "This removes “{code}” from your content languages. Translations already stored in that language stay in the data but are ignored at delivery. You can add it back later.",
+  "settings.general.contentLangRemoveConfirm": "Remove language",
   "settings.general.storage": "Storage",
   "settings.general.storageUsage": "{used} of {limit} used",
   "settings.general.storageLimit": "Storage limit (GB)",

@@ -59,6 +59,11 @@ export function FieldRow({ field, isTitleField, onEdit, onDelete }: FieldRowProp
               Required
             </Badge>
           ) : null}
+          {field.options.localized ? (
+            <Badge variant="outline" className="shrink-0">
+              Localized
+            </Badge>
+          ) : null}
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span className="truncate font-mono">{field.name}</span>

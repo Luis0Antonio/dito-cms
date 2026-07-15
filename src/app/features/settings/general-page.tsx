@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { ImageIcon } from "lucide-react";
+import { ImageIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -17,11 +17,14 @@ import {
   REPO_URL,
 } from "@/shared/constants";
 import type { ProjectSettings } from "@/shared/api-types";
+import { LOCALE_CODE_RE } from "@/shared/localization";
 import { useI18n, type Locale } from "@/app/i18n";
 import { useTheme, type Theme } from "@/app/lib/theme";
 import { formatBytes } from "@/app/lib/format";
+import { Badge } from "@/app/components/ui/badge";
 import { Button } from "@/app/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/app/components/ui/card";
+import { ConfirmDialog } from "@/app/components/common/confirm-dialog";
 import { Input } from "@/app/components/ui/input";
 import { Label } from "@/app/components/ui/label";
 import { Progress } from "@/app/components/ui/progress";
@@ -72,6 +75,8 @@ export function GeneralSettingsPage(): React.ReactElement {
   const [name, setName] = useState("");
   const [logo, setLogo] = useState<string | null>(null);
   const [storageLimit, setStorageLimit] = useState("");
+  const [newLocale, setNewLocale] = useState("");
+  const [pendingRemove, setPendingRemove] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (data) {
@@ -143,6 +148,41 @@ export function GeneralSettingsPage(): React.ReactElement {
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : t("settings.general.saveError")),
   });
+
+  // Content languages save immediately (like the toggles): the whole locale config is sent each
+  // time so `default ∈ locales` always holds. Writing the result back keeps the cache fresh.
+  const saveLocales = useMutation({
+    mutationFn: (body: { contentLocales: string[]; defaultLocale: string }) =>
+      updateProjectSettings(body),
+    onSuccess: (result) => {
+      queryClient.setQueryData<ProjectSettings>(settingsKeys.all, result);
+      setNewLocale("");
+      toast.success(t("settings.general.saved"));
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : t("settings.general.saveError")),
+  });
+
+  const addLocale = (): void => {
+    const code = newLocale.trim();
+    if (!code) return;
+    if (!LOCALE_CODE_RE.test(code)) {
+      toast.error(t("settings.general.contentLangCodeError"));
+      return;
+    }
+    const current = data?.contentLocales ?? [];
+    if (current.includes(code)) {
+      setNewLocale("");
+      return;
+    }
+    saveLocales.mutate({ contentLocales: [...current, code], defaultLocale: data?.defaultLocale ?? code });
+  };
+
+  const removeLocale = (code: string): void => {
+    const next = (data?.contentLocales ?? []).filter((c) => c !== code);
+    if (next.length === 0) return; // never remove the last language
+    const defaultLocale = data?.defaultLocale === code ? next[0] : data?.defaultLocale ?? next[0];
+    saveLocales.mutate({ contentLocales: next, defaultLocale });
+  };
 
   const origin = window.location.origin;
   const deliveryBaseUrl = `${origin}/api/v1`;
@@ -356,6 +396,98 @@ export function GeneralSettingsPage(): React.ReactElement {
 
       <Card>
         <CardHeader>
+          <CardTitle className="text-base">{t("settings.general.contentLanguages")}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {isPending ? (
+            <Skeleton className="h-10 w-full max-w-sm" />
+          ) : isError ? (
+            <ErrorState error={error} onRetry={() => void refetch()} />
+          ) : (
+            <div className="max-w-md space-y-4">
+              <p className="text-xs text-muted-foreground">{t("settings.general.contentLanguagesHint")}</p>
+
+              <div className="space-y-1.5">
+                <Label>{t("settings.general.contentLanguagesLabel")}</Label>
+                <div className="flex flex-wrap gap-2">
+                  {(data?.contentLocales ?? []).map((code) => (
+                    <span
+                      key={code}
+                      className="inline-flex items-center gap-1.5 rounded-md border bg-muted py-1 pl-2.5 pr-1 text-sm"
+                    >
+                      <span className="font-mono">{code}</span>
+                      {code === data?.defaultLocale ? (
+                        <Badge variant="secondary" className="h-4 px-1 text-[10px]">
+                          {t("settings.general.contentLangDefaultBadge")}
+                        </Badge>
+                      ) : null}
+                      <button
+                        type="button"
+                        aria-label={t("settings.general.contentLangRemove", { code })}
+                        disabled={(data?.contentLocales.length ?? 0) <= 1 || saveLocales.isPending}
+                        onClick={() => setPendingRemove(code)}
+                        className="rounded-sm p-0.5 text-muted-foreground hover:text-destructive disabled:pointer-events-none disabled:opacity-40"
+                      >
+                        <XIcon className="size-3.5" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <form
+                className="flex items-center gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  addLocale();
+                }}
+              >
+                <Input
+                  value={newLocale}
+                  onChange={(e) => setNewLocale(e.target.value)}
+                  placeholder={t("settings.general.contentLangAddPlaceholder")}
+                  className="max-w-32"
+                  aria-label={t("settings.general.contentLangAdd")}
+                />
+                <Button
+                  type="submit"
+                  size="sm"
+                  variant="outline"
+                  disabled={!newLocale.trim() || saveLocales.isPending}
+                >
+                  {t("settings.general.contentLangAdd")}
+                </Button>
+              </form>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="default-locale">{t("settings.general.contentLangDefault")}</Label>
+                <Select
+                  value={data?.defaultLocale}
+                  onValueChange={(v) =>
+                    saveLocales.mutate({ contentLocales: data?.contentLocales ?? [], defaultLocale: v })
+                  }
+                  disabled={saveLocales.isPending}
+                >
+                  <SelectTrigger id="default-locale" className="max-w-48">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(data?.contentLocales ?? []).map((code) => (
+                      <SelectItem key={code} value={code}>
+                        {code}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">{t("settings.general.contentLangDefaultHint")}</p>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle className="text-base">{t("settings.general.storage")}</CardTitle>
         </CardHeader>
         <CardContent>
@@ -434,6 +566,22 @@ export function GeneralSettingsPage(): React.ReactElement {
           </div>
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={pendingRemove !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingRemove(null);
+        }}
+        title={t("settings.general.contentLangRemoveTitle")}
+        description={t("settings.general.contentLangRemoveDescription", { code: pendingRemove ?? "" })}
+        confirmLabel={t("settings.general.contentLangRemoveConfirm")}
+        destructive
+        loading={saveLocales.isPending}
+        onConfirm={() => {
+          if (pendingRemove) removeLocale(pendingRemove);
+          setPendingRemove(null);
+        }}
+      />
     </div>
   );
 }

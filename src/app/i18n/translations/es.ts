@@ -309,6 +309,22 @@ export const es = {
   "settings.general.storeEnable": "Habilitar el módulo de tienda",
   "settings.general.storeHint":
     "Activa la tienda para gestionar productos, categorías y catálogo. Mientras esté desactivada, tu contenido no se ve afectado.",
+  "settings.general.contentLanguages": "Idiomas de contenido",
+  "settings.general.contentLanguagesHint":
+    "Marca campos como «Localizados» en el esquema para guardar un valor por idioma. Los sitios eligen el idioma con ?locale= en la API de entrega.",
+  "settings.general.contentLanguagesLabel": "Idiomas",
+  "settings.general.contentLangDefaultBadge": "predet.",
+  "settings.general.contentLangAdd": "Agregar",
+  "settings.general.contentLangAddPlaceholder": "es, en, pt-BR",
+  "settings.general.contentLangCodeError": "Usa un código de idioma válido, p. ej. es, en o pt-BR.",
+  "settings.general.contentLangRemove": "Quitar {code}",
+  "settings.general.contentLangDefault": "Idioma predeterminado",
+  "settings.general.contentLangDefaultHint":
+    "El idioma de reserva cuando falta una traducción en la entrega.",
+  "settings.general.contentLangRemoveTitle": "¿Quitar idioma?",
+  "settings.general.contentLangRemoveDescription":
+    "Se quitará «{code}» de los idiomas de contenido. Las traducciones ya guardadas en ese idioma se conservan en los datos pero se ignoran en la entrega. Puedes volver a agregarlo más tarde.",
+  "settings.general.contentLangRemoveConfirm": "Quitar idioma",
   "settings.general.storage": "Almacenamiento",
   "settings.general.storageUsage": "{used} de {limit} usado",
   "settings.general.storageLimit": "Límite de almacenamiento (GB)",

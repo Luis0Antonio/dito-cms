@@ -65,6 +65,15 @@ function storedMultiple(row: FieldRow): boolean {
   }
 }
 
+/** The persisted `localized` flag of a stored field (false when unparseable/unset). */
+function storedLocalized(row: FieldRow): boolean {
+  try {
+    return (JSON.parse(row.options) as FieldOptions).localized === true;
+  } catch {
+    return false;
+  }
+}
+
 function mapField(row: FieldRow): FieldDTO {
   let options: FieldOptions = {};
   try {
@@ -324,6 +333,19 @@ export async function setFields(
           {
             [`fields.${normalized.indexOf(field)}.options.multiple`]:
               "Toggling multiple reshapes stored values; re-run with allowDestructive",
+          },
+        );
+      }
+      updated.push(field.name);
+    } else if (storedLocalized(prev) !== (field.options.localized ?? false)) {
+      // Same type, but toggling `localized` reshapes stored values (a bare value ↔ a
+      // `{ [locale]: value }` map) → destructive, exactly like the reference multiple flip.
+      if (!input.allowDestructive) {
+        throw conflict(
+          `Switching "${field.name}" between localized and shared would invalidate existing content. Re-run with allowDestructive to proceed.`,
+          {
+            [`fields.${normalized.indexOf(field)}.options.localized`]:
+              "Toggling localized reshapes stored values; re-run with allowDestructive",
           },
         );
       }

@@ -75,6 +75,14 @@ export interface ProjectSettings {
    * to everyone; this only toggles the editable input. The server re-checks on PATCH regardless.
    */
   canEditStorageLimit: boolean;
+  /**
+   * Configured content languages for field-level localization, as BCP-47-ish codes (e.g.
+   * `["es","en"]`). A field marked `localized` stores a `{ [locale]: value }` map keyed by these.
+   * Single-entry by default, so non-localized deployments are unaffected. Editable by any admin.
+   */
+  contentLocales: string[];
+  /** The default/fallback content locale; always one of `contentLocales`. */
+  defaultLocale: string;
 }
 
 // --- Deploy hook -------------------------------------------------------------
