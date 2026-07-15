@@ -5,6 +5,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 
 import { routeTree } from "./router";
 import { createQueryClient } from "./api/query-client";
+import { startDocumentHeadSync } from "./lib/document-head";
 import { I18nProvider } from "./i18n";
 import { ThemeProvider } from "./lib/theme";
 import { Toaster } from "./components/ui/sonner";
@@ -32,14 +33,10 @@ declare module "@tanstack/react-router" {
   }
 }
 
-// Keep the document title in sync with the active route (deepest match's title wins).
-router.subscribe("onResolved", () => {
-  let title: string | undefined;
-  for (const match of router.state.matches) {
-    if (match.staticData.title) title = match.staticData.title;
-  }
-  document.title = title ? `${title} · Dito CMS` : "Dito CMS";
-});
+// Keep the browser tab title ("Dito - {projectName}") and favicon (the brand logo, when uploaded)
+// in sync with project settings. Reads the settings query cache, so no fetch is forced on the
+// unauthenticated login/setup pages.
+startDocumentHeadSync(queryClient);
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

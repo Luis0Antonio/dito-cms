@@ -37,6 +37,10 @@ async function readLogo(db: DrizzleDb): Promise<string | null> {
 
 async function readSettings(db: DrizzleDb, userId: string | undefined): Promise<ProjectSettings> {
   const localeConfig = await getContentLocales(db);
+  // Both System-Admin gates (module toggles + storage-limit input) resolve to the same allowlist
+  // read, so compute it once. The read-only figures above go to every admin; these flags only
+  // reveal/enable the System-Admin-only controls in the UI (the server re-checks on PATCH).
+  const systemAdmin = await isSystemAdmin(db, userId);
   return {
     projectName: await readProjectName(db),
     logo: await readLogo(db),
@@ -44,8 +48,8 @@ async function readSettings(db: DrizzleDb, userId: string | undefined): Promise<
     formsEnabled: await isFormsEnabled(db),
     storageLimitGb: await getStorageLimitGb(db),
     storageUsedBytes: await getStorageUsedBytes(db),
-    // Read-only figures above go to every admin; this flag only toggles the editable input.
-    canEditStorageLimit: await isSystemAdmin(db, userId),
+    isSystemAdmin: systemAdmin,
+    canEditStorageLimit: systemAdmin,
     contentLocales: localeConfig.locales,
     defaultLocale: localeConfig.default,
   };
@@ -74,11 +78,20 @@ settingsRouter.get("/", async (c) => {
 settingsRouter.patch("/", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
   const db = c.get("db");
-  // Authorize the gated field BEFORE applying any field, so a rejected storage-limit change can't
-  // partially apply the other (open) fields. Raising the cap has billing consequences → System
-  // Admin only; every other field stays open to all admins.
-  if (typeof body.storageLimitGb === "number" && !(await isSystemAdmin(db, c.get("authUserId")))) {
+  // Authorize the System-Admin-only fields BEFORE applying any field, so a rejected change to a
+  // gated field can't partially apply the other (open) fields. Toggling the Store/Forms modules
+  // changes what the whole instance exposes, and raising the storage cap has billing consequences
+  // → both are System Admin only; every other field stays open to all admins. Both gates resolve
+  // to the same allowlist read, so compute it once.
+  const editorIsSystemAdmin = await isSystemAdmin(db, c.get("authUserId"));
+  if (typeof body.storageLimitGb === "number" && !editorIsSystemAdmin) {
     throw forbidden("Only a System Admin can change the storage limit");
+  }
+  if (
+    (typeof body.commerceEnabled === "boolean" || typeof body.formsEnabled === "boolean") &&
+    !editorIsSystemAdmin
+  ) {
+    throw forbidden("Only a System Admin can enable or disable modules");
   }
   if (typeof body.projectName === "string") {
     await setSetting(db, "project_name", body.projectName.trim() || APP_NAME);
