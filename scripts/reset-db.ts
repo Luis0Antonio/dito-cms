@@ -1,16 +1,16 @@
 /**
  * Empty every table in the LOCAL D1 database, leaving the schema intact.
  *
- *   pnpm run db:reset:local
+ *   bun run db:reset:local
  *
  * Wipes all rows from the local (miniflare) D1 database that `wrangler dev` and
- * `pnpm run db:migrate:local` use — the same file `pnpm run db:studio` opens.
+ * `bun run db:migrate:local` use — the same file `bun run db:studio` opens.
  * The schema is left untouched, so this is a data-only reset: every table is
  * left empty and ready to re-seed. The `d1_migrations` bookkeeping table is
  * preserved so `db:migrate:local` stays a no-op afterwards.
  *
  * Stop `wrangler dev` before running — both processes write the same SQLite file.
- * Re-seed afterwards with `DITO_API_KEY=… pnpm run seed`.
+ * Re-seed afterwards with `DITO_API_KEY=… bun run seed`.
  */
 import { existsSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
@@ -37,7 +37,7 @@ function main(): void {
   const path = findLocalD1();
   if (!path) {
     console.error(
-      "✗ No local D1 database found. Run `pnpm dev` or `pnpm run db:migrate:local` first.",
+      "✗ No local D1 database found. Run `bun dev` or `bun run db:migrate:local` first.",
     );
     process.exit(1);
   }
