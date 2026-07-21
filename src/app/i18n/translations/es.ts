@@ -26,6 +26,7 @@ export const es = {
   "auth.login.submit": "Iniciar sesión",
   "auth.login.submitting": "Iniciando sesión…",
   "auth.login.invalidCredentials": "Correo o contraseña incorrectos",
+  "auth.login.tooManyAttempts": "Demasiados intentos. Espera unos minutos e inténtalo de nuevo.",
 
   // Auth - Setup
   "auth.setup.title": "Crea tu cuenta de administrador",
@@ -38,6 +39,7 @@ export const es = {
   "auth.setup.submit": "Crear cuenta",
   "auth.setup.submitting": "Creando…",
   "auth.setup.error": "No se pudo crear la cuenta de administrador",
+  "auth.setup.tooManyAttempts": "Demasiados intentos. Espera unos minutos e inténtalo de nuevo.",
 
   // Auth - Change password
   "auth.changePassword.title": "Cambiar contraseña",

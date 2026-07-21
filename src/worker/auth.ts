@@ -49,6 +49,11 @@ export async function createAuth(db: DrizzleDb, env: Env, origin: string) {
       disableSignUp,
       minPasswordLength: 8,
     },
+    // NOTE: brute-force protection for sign-in/sign-up is NOT configured here. Better Auth's
+    // core `rateLimit` is left off on purpose — it defaults to in-memory storage, which on
+    // Workers is per-isolate and ephemeral, and its `enabled` default keys off
+    // `process.env.NODE_ENV === "production"`, unset in workerd. The real throttle is durable
+    // and D1-backed: middleware/auth-rate-limit.ts, wired in index.ts.
     advanced: {
       useSecureCookies: isHttps,
     },

@@ -28,6 +28,7 @@ export const en: Record<TranslationKey, string> = {
   "auth.login.submit": "Sign in",
   "auth.login.submitting": "Signing in…",
   "auth.login.invalidCredentials": "Invalid email or password",
+  "auth.login.tooManyAttempts": "Too many attempts. Wait a few minutes and try again.",
 
   // Auth - Setup
   "auth.setup.title": "Create your admin account",
@@ -40,6 +41,7 @@ export const en: Record<TranslationKey, string> = {
   "auth.setup.submit": "Create account",
   "auth.setup.submitting": "Creating…",
   "auth.setup.error": "Could not create the admin account",
+  "auth.setup.tooManyAttempts": "Too many attempts. Wait a few minutes and try again.",
 
   // Auth - Change password
   "auth.changePassword.title": "Change password",
