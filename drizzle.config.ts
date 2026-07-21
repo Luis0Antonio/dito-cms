@@ -4,9 +4,9 @@ import { defineConfig } from "drizzle-kit";
 
 // Cloudflare's local D1 (miniflare) stores the database as a SQLite file with a
 // content-hashed name under .wrangler/state. Locate it so `drizzle-kit studio`
-// (pnpm run db:studio) opens the same DB that `wrangler dev` and
+// (bun run db:studio) opens the same DB that `wrangler dev` and
 // `db:migrate:local` use. Returns undefined until the local DB has been created
-// (e.g. by running `pnpm dev` or `pnpm run db:migrate:local`).
+// (e.g. by running `bun dev` or `bun run db:migrate:local`).
 function localD1Path(): string | undefined {
   const dir = resolve(".wrangler/state/v3/d1/miniflare-D1DatabaseObject");
   if (!existsSync(dir)) return undefined;
