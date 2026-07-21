@@ -561,13 +561,15 @@ export const counters = sqliteTable("counters", {
 export type CounterRow = typeof counters.$inferSelect;
 
 /**
- * D1-based fixed-window rate limiting for the public checkout route (no KV/DO in
- * this deployment). `key` is an ip+window bucket; `count` is the hits so far in the
- * window; `expiresAt` is the window end (epoch ms). Rows are cleaned up
- * opportunistically on write.
+ * D1-based fixed-window rate limiting (no KV/DO in this deployment). Named for its first
+ * caller, the public checkout route, but it is the GENERIC bucket store — every scope in
+ * lib/rate-limit.ts shares it (checkout, webhooks, and the sign-in/sign-up throttle), which
+ * is why adding a limiter needs no migration. `key` is a scope+identity+window bucket;
+ * `count` is the hits so far in the window; `expiresAt` is the window end (epoch ms). Rows
+ * are cleaned up opportunistically on write.
  */
 export const checkoutHits = sqliteTable("checkout_hits", {
-  /** Bucket key: client ip + time window. */
+  /** Bucket key: `scope:identity:windowStart` (identity is normally a client ip). */
   key: text("key").primaryKey(),
   count: integer("count").notNull(),
   /** Window expiry, epoch ms; expired rows are swept on write. */

@@ -39,7 +39,10 @@ export function SetupPage(): React.ReactElement {
       password: values.password,
     });
     if (error) {
-      form.setError("email", { message: error.message ?? t("auth.setup.error") });
+      // 429 is the credential throttle, not a signup failure — see login-page.tsx.
+      const message =
+        error.status === 429 ? t("auth.setup.tooManyAttempts") : (error.message ?? t("auth.setup.error"));
+      form.setError("email", { message });
       return;
     }
     // Clear (not just invalidate) so route guards refetch the fresh session/status

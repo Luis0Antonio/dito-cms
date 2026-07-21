@@ -158,3 +158,40 @@ Preserve this design; do **not** regress it:
   are gated. **Note:** the MCP tools `set_store_enabled`/`set_forms_enabled` are deliberately NOT
   system-admin-gated (MCP has no system-admin gate anywhere, and the storage-limit feature has no MCP edit
   surface to mirror); revisit only if MCP gains a system-admin authorization model.
+
+## Auth brute-force throttle
+
+`/api/auth/sign-in/email` and `/sign-up/email` are throttled by a durable, D1-backed limiter
+(`middleware/auth-rate-limit.ts`). Preserve this design; do **not** regress it:
+
+- **Better Auth's core `rateLimit` is deliberately NOT used.** It defaults to in-memory storage —
+  per-isolate and ephemeral on Workers, i.e. no real protection at edge scale — and its `enabled`
+  default keys off `process.env.NODE_ENV === "production"`, which is unset in workerd, so it may
+  never switch on at all. Don't "simplify" this back to the built-in limiter. (The separate
+  `apiKey({ rateLimit: { enabled: false } })` in `auth.ts` is unrelated and stays off, for the
+  documented high-volume-caller reason.)
+- **No migration: `checkout_hits` is the GENERIC bucket store**, not a commerce table. Every scope
+  in `lib/rate-limit.ts` shares it (`checkout`, `webhook`, `auth-ip`, `auth-account`), so adding a
+  limiter needs no schema change. The name is historical (first caller).
+- **TWO keys, both required.** Per-IP (`auth-ip`) blunts one host grinding a password list;
+  per-account (`auth-account`, hashed email) blunts **distributed** credential stuffing, which a
+  per-IP limit cannot see. Dropping either one reopens half the hole.
+- **The account limit is 3× the IP limit ON PURPOSE** (30 vs 10 per 15 min). A single IP is cut off
+  at the IP limit, so it can only push that many hits into a victim's account bucket — locking a
+  real admin out takes 3+ distinct IPs. **Check IP first and return before touching the account
+  bucket**, or a single-IP attacker spends the victim's budget on its own way to being blocked.
+- **It is a THROTTLE, not a lockout** — windows auto-expire, nothing is written to the user row, no
+  manual unlock. A durable lockout would be a remote self-DoS in this everyone-is-admin model:
+  anyone who knows the admin's email could lock the only admin out of their own CMS. The residual
+  (a few IPs can cause intermittent 15-min lockouts) is inherent to per-account keying; the short
+  window is what prices it.
+- **Normalize the email before hashing** (`trim().toLowerCase()`). Better Auth lowercases emails, so
+  without it `Admin@x.com` and `admin@x.com` get separate buckets and the per-account limit is
+  bypassable by varying casing. Hashing only keeps plaintext emails out of the bucket table.
+- **Read the body from a `.clone()`.** Better Auth's handler receives `c.req.raw` and must read that
+  same body; consuming the stream in the middleware breaks sign-in outright.
+- **Scope it to the two credential paths, never blanket `/api/auth/*`** — that would put a D1 write
+  on every session poll and sign-out.
+- **The SPA must branch on `error.status === 429`** (login/setup pages). Better Auth's client does
+  not flatten our `{ error: { code, message } }` envelope onto `error.message`, so without the
+  branch a throttled admin is shown "Invalid email or password" and keeps retrying.

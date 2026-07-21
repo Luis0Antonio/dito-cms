@@ -3,12 +3,13 @@ import { lt, sql } from "drizzle-orm";
 import type { DrizzleDb } from "../db/client";
 import { checkoutHits } from "../db/schema";
 
-// D1-backed fixed-window rate limiting for the PUBLIC commerce routes (checkout, payment
-// webhooks). This deployment has no KV/DO/cron bindings, so the counter lives in the
-// `checkout_hits` table (phase 2A): one row per (scope, key, window) bucket, incremented
-// with a single upsert per request. Fixed windows are deliberately simple — the goal is
-// abuse damping (scripted checkout hammering, webhook floods), not precise QoS; the
-// worst-case burst at a window boundary is 2× the limit, which is fine for that goal.
+// D1-backed fixed-window rate limiting for the UNAUTHENTICATED surfaces: the public commerce
+// routes (checkout, payment webhooks) and the credential endpoints (middleware/auth-rate-limit.ts).
+// This deployment has no KV/DO/cron bindings, so the counter lives in the `checkout_hits`
+// table (phase 2A): one row per (scope, key, window) bucket, incremented with a single upsert
+// per request. Fixed windows are deliberately simple — the goal is abuse damping (scripted
+// checkout hammering, webhook floods, password guessing), not precise QoS; the worst-case
+// burst at a window boundary is 2× the limit, which is fine for that goal.
 //
 // Framework-free (db-only), like the other lib modules. Routes decide limits/scopes and
 // build the 429 response; `clientIp` is the shared header-derivation helper.

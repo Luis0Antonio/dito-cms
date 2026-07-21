@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { type AppEnv, baseMiddleware, getAuth } from "./lib/app";
 import { toErrorBody } from "./lib/errors";
 import { requireAuth } from "./middleware/require-auth";
+import { authRateLimit } from "./middleware/auth-rate-limit";
 import { systemRouter } from "./routes/system";
 import { adminRouter } from "./routes/admin";
 import { deliveryRouter } from "./routes/delivery";
@@ -14,6 +15,11 @@ import { handleMcpRequest } from "./mcp/server";
 const app = new Hono<AppEnv>();
 
 app.use("*", baseMiddleware);
+
+// Durable per-IP + per-account throttle on the two unauthenticated credential endpoints.
+// Registered BEFORE the catch-all below so it covers exactly those paths: blanketing all of
+// /api/auth/* would put D1 writes on every session poll and sign-out.
+app.on("POST", ["/api/auth/sign-in/email", "/api/auth/sign-up/email"], authRateLimit);
 
 // Better Auth owns /api/auth/* (sign-in/up/out, session, admin + apiKey plugin routes).
 app.all("/api/auth/*", async (c) => {

@@ -33,7 +33,15 @@ export function LoginPage(): React.ReactElement {
   const onSubmit = async (values: LoginInput): Promise<void> => {
     const { error } = await authClient.signIn.email({ email: values.email, password: values.password });
     if (error) {
-      form.setError("password", { message: error.message ?? t("auth.login.invalidCredentials") });
+      // The sign-in throttle (worker/middleware/auth-rate-limit.ts) answers 429 in the API's
+      // `{ error: { code, message } }` envelope, which Better Auth's client does not flatten
+      // onto `error.message` — so branch on the status, or a throttled admin would be told
+      // their password was wrong and keep retrying.
+      const message =
+        error.status === 429
+          ? t("auth.login.tooManyAttempts")
+          : (error.message ?? t("auth.login.invalidCredentials"));
+      form.setError("password", { message });
       return;
     }
     // Clear (not just invalidate) so the route guard's ensureQueryData refetches the
