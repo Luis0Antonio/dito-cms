@@ -44,8 +44,13 @@ import type {
 //     checkout; unpaid orders hold no stock, so nothing needs releasing.
 //   - An UNKNOWN charge outcome (ChargeUnknownError) leaves the order `awaiting_payment` and
 //     the payment row `created`. NEVER failed — money may have moved.
-// Rate limiting, Idempotency-Key hashing and Turnstile live at the route layer (2E); this
-// service receives an already-hashed `idempotencyKeyHash`.
+// Rate limiting and Idempotency-Key hashing live at the route layer; this service receives an
+// already-hashed `idempotencyKeyHash`. NOTE: there is NO bot/abuse challenge (Turnstile,
+// CAPTCHA) anywhere in the stack — deliberately, since it needs per-deployment keys and
+// storefront-side markup this CMS can't provide generically. The only guard on guest checkout
+// is the per-IP window in routes/commerce.ts (10/min), which an IP-rotating card-testing ring
+// can walk around. A deployment putting a live payment account behind this should add a
+// challenge at its own edge (or in front of the storefront's checkout form).
 
 /** The only payment provider in v1. The registry makes phase-3 providers a key swap. */
 const PROVIDER = "culqi";
