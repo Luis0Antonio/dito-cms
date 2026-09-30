@@ -156,6 +156,7 @@ function ContactFormEditor({
   const [enabled, setEnabled] = useState(true);
   const [rateLimitMax, setRateLimitMax] = useState(5);
   const [rateLimitWindowSeconds, setRateLimitWindowSeconds] = useState(60);
+  const [notifyEmails, setNotifyEmails] = useState("");
   const [fields, setFields] = useState<EditableField[]>([]);
 
   useEffect(() => {
@@ -164,6 +165,7 @@ function ContactFormEditor({
     setEnabled(data.enabled);
     setRateLimitMax(data.rateLimitMax);
     setRateLimitWindowSeconds(data.rateLimitWindowSeconds);
+    setNotifyEmails(data.notifyEmails.join(", "));
     setFields(toEditableFields(data));
   }, [data]);
 
@@ -175,6 +177,7 @@ function ContactFormEditor({
         enabled,
         rateLimitMax,
         rateLimitWindowSeconds,
+        notifyEmails: notifyEmails.split(","),
       });
       return setContactFormFields(data.id, fields.map(toFieldInput));
     },
@@ -292,6 +295,22 @@ function ContactFormEditor({
                 onChange={(e) => setRateLimitWindowSeconds(Number(e.target.value))}
               />
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="contact-form-notify">Notify by email</Label>
+            <Input
+              id="contact-form-notify"
+              type="text"
+              inputMode="email"
+              placeholder="sales@example.com, team@example.com"
+              value={notifyEmails}
+              onChange={(e) => setNotifyEmails(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Each submission is emailed to these addresses, separated by commas. Needs FORMS_EMAIL_FROM on
+              the server.
+            </p>
           </div>
 
           <div className="space-y-1.5">

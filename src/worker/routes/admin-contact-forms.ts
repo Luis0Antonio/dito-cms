@@ -85,6 +85,12 @@ contactFormsRouter.patch("/:id", async (c) => {
   if ("rateLimitWindowSeconds" in body && typeof body.rateLimitWindowSeconds === "number") {
     patch.rateLimitWindowSeconds = body.rateLimitWindowSeconds;
   }
+  if ("notifyEmails" in body) {
+    if (!Array.isArray(body.notifyEmails) || !body.notifyEmails.every((e) => typeof e === "string")) {
+      throw badRequest("`notifyEmails` must be an array of strings");
+    }
+    patch.notifyEmails = body.notifyEmails as string[];
+  }
   const form = await updateContactForm(c.get("db"), c.req.param("id"), patch);
   return c.json({ form });
 });

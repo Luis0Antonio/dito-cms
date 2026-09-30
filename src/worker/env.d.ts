@@ -19,4 +19,10 @@ interface Env {
    * and validated only at encrypt/decrypt time, never at worker boot.
    */
   SETTINGS_ENC_KEY?: string;
+  /**
+   * Sender address for contact form notifications (see services/form-notify.ts), e.g.
+   * `web@yourdomain.com`. Its domain must be onboarded to Cloudflare Email Sending on the
+   * same account as the Worker. OPTIONAL — when unset, submissions are only stored.
+   */
+  FORMS_EMAIL_FROM?: string;
 }

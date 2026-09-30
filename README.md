@@ -151,6 +151,16 @@ key, standard-base64-encoded. Generate one with `openssl rand -base64 32`. For a
 when saving or using those secrets — content-only and catalog-only instances never need it, and
 the Worker never touches the key at boot.
 
+### Form email notifications (forms module)
+
+Optional. Each contact form has a **Notify by email** setting; when it lists addresses, every
+submission is emailed to them through Cloudflare Email Service (the `EMAIL` send_email binding —
+no API key). Set the sender with `wrangler secret put FORMS_EMAIL_FROM` (e.g. `web@yourdomain.com`);
+its domain must use Cloudflare DNS and be onboarded to Email Sending on the Worker's account
+(`wrangler email sending enable yourdomain.com`). Without `FORMS_EMAIL_FROM`, submissions are only
+stored in the admin. A failed email never fails the submission. Locally, `wrangler dev` doesn't
+send — it logs the message and writes it to a temp file.
+
 ## Managing multiple clients
 
 | Command | Use it to | Creates infra? |

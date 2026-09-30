@@ -28,3 +28,12 @@ CLOUDINARY_URL=
 #
 # Generate one with: openssl rand -base64 32
 SETTINGS_ENC_KEY=
+
+# Contact form email notifications. OPTIONAL — needed only for the Forms module.
+#
+# When set, each form emails the addresses in its "Notify by email" setting on every
+# submission, through Cloudflare Email Service (the EMAIL send_email binding). The sender's
+# domain must be onboarded to Email Sending on the Worker's account
+# (`wrangler email sending enable yourdomain.com`). When unset, submissions are only stored
+# in the admin. For a deployed Worker: wrangler secret put FORMS_EMAIL_FROM
+FORMS_EMAIL_FROM=
