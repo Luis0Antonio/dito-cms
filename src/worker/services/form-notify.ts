@@ -28,14 +28,21 @@ export async function notifySubmission(
     .map((field) => `${field.label}:\n${formatValue(data[field.name])}\n`);
   const replyTo = fields.find((field) => field.type === "email" && typeof data[field.name] === "string");
 
+  const message = {
+    from: env.FORMS_EMAIL_FROM,
+    to,
+    subject: `Nuevo mensaje: ${form.name}`,
+    text: [...lines, "—", `Ver todos los mensajes: ${origin}/contact-forms`].join("\n"),
+  };
   try {
-    await env.EMAIL.send({
-      from: env.FORMS_EMAIL_FROM,
-      to,
-      replyTo: replyTo ? (data[replyTo.name] as string) : undefined,
-      subject: `Nuevo mensaje: ${form.name}`,
-      text: [...lines, "—", `Ver todos los mensajes: ${origin}/contact-forms`].join("\n"),
-    });
+    try {
+      await env.EMAIL.send({ ...message, replyTo: replyTo ? (data[replyTo.name] as string) : undefined });
+    } catch (err) {
+      // The reply-to is visitor input our regex accepted but the service may not; never let it
+      // cost the notification.
+      if (!replyTo) throw err;
+      await env.EMAIL.send(message);
+    }
   } catch (err) {
     const code = (err as { code?: string }).code ?? "unknown";
     console.error(`[forms] notification for "${form.name}" failed: ${code} ${(err as Error).message}`);
