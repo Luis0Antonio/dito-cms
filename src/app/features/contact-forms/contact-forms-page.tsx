@@ -543,7 +543,7 @@ export function ContactFormsPage(): React.ReactElement {
           }
         />
       ) : (
-        <div className="grid gap-6 lg:grid-cols-[18rem_1fr]">
+        <div className="grid gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
           <div className="space-y-3">
             {data.map((form) => (
               <FormCard
