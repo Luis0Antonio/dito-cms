@@ -37,6 +37,9 @@ const FIELD_TYPES = new Set<ContactFormFieldType>([
   "select",
 ]);
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MAX_NOTIFY_EMAILS = 10;
+
 const DEFAULT_FIELDS: ContactFormFieldInput[] = [
   { name: "name", label: "Name", type: "text", required: true },
   { name: "email", label: "Email", type: "email", required: true },
@@ -142,6 +145,7 @@ function mapSummary(
     enabled: row.enabled,
     rateLimitMax: row.rateLimitMax,
     rateLimitWindowSeconds: row.rateLimitWindowSeconds,
+    notifyEmails: row.notifyEmails ? row.notifyEmails.split(",") : [],
     fieldCount: fieldCountByForm.get(row.id) ?? 0,
     submissionCount: submissionCountByForm.get(row.id) ?? 0,
     createdAt: row.createdAt,
@@ -219,6 +223,21 @@ function validateRateLimitPatch(input: UpdateContactFormInput): Partial<typeof c
       });
     }
     values.rateLimitWindowSeconds = value;
+  }
+  if (input.notifyEmails !== undefined) {
+    const emails = Array.from(new Set(input.notifyEmails.map((e) => e.trim().toLowerCase()).filter(Boolean)));
+    const invalid = emails.find((e) => !EMAIL_RE.test(e));
+    if (invalid) {
+      throw validationError(`"${invalid}" is not a valid email address`, {
+        notifyEmails: "Enter valid email addresses, separated by commas",
+      });
+    }
+    if (emails.length > MAX_NOTIFY_EMAILS) {
+      throw validationError(`Use at most ${MAX_NOTIFY_EMAILS} addresses`, {
+        notifyEmails: `Use at most ${MAX_NOTIFY_EMAILS} addresses`,
+      });
+    }
+    values.notifyEmails = emails.join(",");
   }
   if (Object.keys(values).length > 0) values.updatedAt = Date.now();
   return values;
@@ -386,7 +405,7 @@ function validateSubmissionData(
     if (field.required && !text) fieldError(field, "This field is required");
     if (!text) continue;
 
-    if (field.type === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)) {
+    if (field.type === "email" && !EMAIL_RE.test(text)) {
       fieldError(field, "Enter a valid email address");
     }
     if (field.type === "select" && !(field.options.choices ?? []).includes(text)) {
@@ -397,13 +416,21 @@ function validateSubmissionData(
   return data;
 }
 
+export interface SubmittedContactForm {
+  submissionId: string;
+  form: ContactFormRow;
+  fields: ContactFormFieldDTO[];
+  data: Record<string, unknown>;
+  createdAt: number;
+}
+
 export async function submitContactForm(
   db: DrizzleDb,
   publicKey: string,
   rawData: Record<string, unknown>,
   clientIp: string,
   userAgent: string | null,
-): Promise<{ submissionId: string }> {
+): Promise<SubmittedContactForm> {
   const form = await findFormByPublicKey(db, publicKey);
   const fields = (await loadFields(db, form.id)).map(mapField);
   if (fields.length === 0) throw conflict("Contact form has no fields configured");
@@ -436,5 +463,5 @@ export async function submitContactForm(
     userAgent: userAgent?.slice(0, 500) ?? null,
     createdAt: now,
   });
-  return { submissionId };
+  return { submissionId, form, fields, data, createdAt: now };
 }

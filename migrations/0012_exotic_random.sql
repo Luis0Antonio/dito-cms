@@ -1,0 +1,1 @@
+ALTER TABLE `contact_forms` ADD `notify_emails` text DEFAULT '' NOT NULL;

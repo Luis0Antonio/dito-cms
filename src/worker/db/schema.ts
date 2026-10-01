@@ -618,6 +618,8 @@ export const contactForms = sqliteTable(
     enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
     rateLimitMax: integer("rate_limit_max").notNull().default(5),
     rateLimitWindowSeconds: integer("rate_limit_window_seconds").notNull().default(60),
+    // Comma-separated recipients emailed on each submission (see services/form-notify.ts).
+    notifyEmails: text("notify_emails").notNull().default(""),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },

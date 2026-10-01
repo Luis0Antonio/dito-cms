@@ -4,6 +4,7 @@ import { cors } from "hono/cors";
 import type { AppEnv } from "../lib/app";
 import { badRequest, notFound, payloadTooLarge } from "../lib/errors";
 import { submitContactForm } from "../services/contact-forms";
+import { notifySubmission } from "../services/form-notify";
 import { getContentLocales, isFormsEnabled } from "../services/settings";
 import {
   getContentItem,
@@ -159,5 +160,14 @@ deliveryRouter.post("/contact-forms/:publicKey/submissions", async (c) => {
     clientIp,
     c.req.header("user-agent") ?? null,
   );
+  // The submission is already stored; a failed email must never fail it.
+  const notify = notifySubmission(c.env, c.get("origin"), result).catch((err: unknown) => {
+    console.error("[forms] notification error:", err);
+  });
+  try {
+    c.executionCtx.waitUntil(notify);
+  } catch {
+    /* dev: no execution context → let it run detached */
+  }
   return c.json({ ok: true, submissionId: result.submissionId }, 201);
 });

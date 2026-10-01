@@ -22,6 +22,11 @@
       "bucket_name": "dito-cms-media"
     }
   ],
+  "send_email": [
+    {
+      "name": "EMAIL"
+    }
+  ],
   "observability": {
     "enabled": true
   }

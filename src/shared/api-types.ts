@@ -438,6 +438,8 @@ export interface ContactFormSummary {
   enabled: boolean;
   rateLimitMax: number;
   rateLimitWindowSeconds: number;
+  /** Addresses emailed on every submission. Empty → no email is sent. */
+  notifyEmails: string[];
   fieldCount: number;
   submissionCount: number;
   createdAt: number;
@@ -474,6 +476,7 @@ export interface UpdateContactFormInput {
   enabled?: boolean;
   rateLimitMax?: number;
   rateLimitWindowSeconds?: number;
+  notifyEmails?: string[];
 }
 
 export interface SetContactFormFieldsInput {
